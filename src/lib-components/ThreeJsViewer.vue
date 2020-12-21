@@ -58,9 +58,11 @@ export default {
     this.controls = null;
     this.raycaster = null;
     this.mouse = null;
-    this.geoms = {};
-    this.meshes = [];
+    this.geometry = new THREE.BufferGeometry();
+    this.mesh = null;
     this.mesh_index = {};
+    this.faceIDs = [];
+    this.vertices = [];
   },
   async mounted() {
     this.$emit('rendering', true);
@@ -217,6 +219,10 @@ export default {
         }
 
       }
+
+      this.mesh = null;
+      this.geometry = new THREE.BufferGeometry();
+
     },
     //convert CityObjects to mesh and add them to the viewer
     initVertices() {
@@ -270,30 +276,21 @@ export default {
       //iterate through all cityObjects
       for (var cityObj in this.citymodel.CityObjects) {
         
-        // try {
         await this.parseObject(cityObj)
           
-        // } catch (e) {
-        //   console.log("ERROR at creating: " + cityObj + "\n" + e.message);
-        //   continue
-        // }
-        
-        //set color of object
-        var coType = this.citymodel.CityObjects[cityObj].type;
-        var material = new THREE.MeshLambertMaterial();
-        material.color.setHex(this.object_colors[coType]);
-        
-        //create mesh
-        //geoms[cityObj].normalize()
-        var _id = cityObj
-        var coMesh = new THREE.Mesh(this.geoms[_id], material)
-        coMesh.name = cityObj;
-        coMesh.castShadow = true;
-        coMesh.receiveShadow = true;
-        this.scene.add(coMesh);
-        this.meshes.push(coMesh);
-        this.mesh_index[_id] = coMesh;
       }
+
+      var material = new THREE.MeshLambertMaterial();
+      material.vertexColors = true;
+
+      this.geometry.setAttribute( 'position', new THREE.Float32BufferAttribute( this.vertices, 3 ) );
+
+      this.mesh = new THREE.Mesh( this.geometry, material );
+      this.mesh.castShadow = true;
+      this.mesh.receiveShadow = true;
+
+      this.scene.add(this.mesh)
+
     },
     //convert json file to viwer-object
     async parseObject(cityObj) {
@@ -303,10 +300,6 @@ export default {
       {
         return;
       }
-   
-      //create geometry and empty list for the vertices
-      var geom = new THREE.Geometry()
-      var vertices = [] // List of global indices in this surface
 
       for (var geom_i = 0; geom_i < this.citymodel.CityObjects[cityObj].geometry.length; geom_i++)
       {
@@ -315,38 +308,47 @@ export default {
         
         var i;
         var j;
+
         if (geomType == "Solid") {
           var shells = this.citymodel.CityObjects[cityObj].geometry[geom_i].boundaries;
 
           for (i = 0; i < shells.length; i++)
           {
-            await this.parseShell(geom, shells[i], vertices);
+
+            await this.parseShell(shells[i], cityObj);
+
           }
+
         } else if (geomType == "MultiSurface" || geomType == "CompositeSurface") {
+
           var surfaces = this.citymodel.CityObjects[cityObj].geometry[geom_i].boundaries;
 
-          await this.parseShell(geom, surfaces, vertices);
+          await this.parseShell(surfaces, cityObj);
+
         } else if (geomType == "MultiSolid" || geomType == "CompositeSolid") {
+          
           var solids = this.citymodel.CityObjects[cityObj].geometry[geom_i].boundaries;
 
           for (i = 0; i < solids.length; i++) {
+
             for (j = 0; j < solids[i].length; j++) {
-              await this.parseShell(geom, solids[i][j], vertices);
+
+              await this.parseShell(solids[i][j], cityObj);
+
             }
+
           }
+
         }
+
       }
             
       //needed for shadow
-      geom.computeFaceNormals();
-      
-      //add geom to the list
-      var _id = cityObj
-      this.geoms[_id] = geom
+      //geom.computeFaceNormals();
       
       return ("")
     },
-    async parseShell(geom, boundaries, vertices)
+    async parseShell(boundaries, cityObj)
     {
       // Contains the boundary but with the right verticeId
       var i; // 
@@ -356,28 +358,55 @@ export default {
         var holes = []
 
         for (j = 0; j < boundaries[i].length; j++) {
+          //console.log(boundaries[i]);
           if (boundary.length > 0)
           {
             holes.push(boundary.length);
           }
-          var new_boundary = this.extractLocalIndices(geom, boundaries[i][j], vertices)
-          boundary.push(...new_boundary);
+          //var new_boundary = this.extractLocalIndices(boundaries[i][j])
+          //boundary.push(...new_boundary);
+          boundary.push(...boundaries[i][j])
         }
 
+
         if (boundary.length == 3) {
-          geom.faces.push(new THREE.Face3(boundary[0], boundary[1], boundary[2]))
+
+          this.vertices.push(this.citymodel.vertices[ boundary[0] ][0]);
+          this.vertices.push(this.citymodel.vertices[ boundary[0] ][1]);
+          this.vertices.push(this.citymodel.vertices[ boundary[0] ][2]);
+
+          this.vertices.push(this.citymodel.vertices[ boundary[1] ][0]);
+          this.vertices.push(this.citymodel.vertices[ boundary[1] ][1]);
+          this.vertices.push(this.citymodel.vertices[ boundary[1] ][2]);
+
+          this.vertices.push(this.citymodel.vertices[ boundary[2] ][0]);
+          this.vertices.push(this.citymodel.vertices[ boundary[2] ][1]);
+          this.vertices.push(this.citymodel.vertices[ boundary[2] ][2]);
+
+          // console.log(boundary);
+          // console.log(this.vertices.length);
+          // console.log(this.citymodel.vertices[boundary[0]]);
+          // // face.color.setHex( this.object_colors[ this.citymodel.CityObjects[cityObj].type ] );
+          // this.vertices.push(this.vertices[boundary[0]]);
+          // this.vertices.push(this.vertices[boundary[1]]);
+          // this.vertices.push(this.vertices[boundary[2]]);
+          // this.faceIDs.push( cityObj );
+
         }
         else if (boundary.length > 3) {
           //create list of points
           var pList = []
           var k
           for (k = 0; k < boundary.length; k++) {
+
             pList.push({
-              x: this.citymodel.vertices[vertices[boundary[k]]][0],
-              y: this.citymodel.vertices[vertices[boundary[k]]][1],
-              z: this.citymodel.vertices[vertices[boundary[k]]][2]
+              x: this.citymodel.vertices[ boundary[ k ] ][ 0 ],
+              y: this.citymodel.vertices[ boundary[ k ] ][ 1 ],
+              z: this.citymodel.vertices[ boundary[ k ] ][ 2 ]
             })
           }
+
+
 
           //get normal of these points
           var normal = await this.get_normal_newell(pList)
@@ -395,46 +424,24 @@ export default {
           
           //create faces based on triangulation
           for (k = 0; k < tr.length; k += 3) {
-            geom.faces.push(
-              new THREE.Face3(
-                boundary[tr[k]],
-                boundary[tr[k + 1]],
-                boundary[tr[k + 2]]
-                )
-                )
+
+            this.vertices.push(this.citymodel.vertices[boundary[tr[k]]][0]);
+            this.vertices.push(this.citymodel.vertices[boundary[tr[k]]][1]);
+            this.vertices.push(this.citymodel.vertices[boundary[tr[k]]][2]);
+
+            this.vertices.push(this.citymodel.vertices[boundary[tr[k + 1]]][0]);
+            this.vertices.push(this.citymodel.vertices[boundary[tr[k + 1]]][1]);
+            this.vertices.push(this.citymodel.vertices[boundary[tr[k + 1]]][2]);
+
+            this.vertices.push(this.citymodel.vertices[boundary[tr[k + 2]]][0]);
+            this.vertices.push(this.citymodel.vertices[boundary[tr[k + 2]]][1]);
+            this.vertices.push(this.citymodel.vertices[boundary[tr[k + 2]]][2]);
+
+            this.faceIDs.push( cityObj );
+                
           }
         }
       }
-    },
-    extractLocalIndices(geom, boundary, indices)
-    {
-      var new_boundary = []
-
-      var j
-      for (j = 0; j < boundary.length; j++) {
-        //the original index from the json file
-        var index = boundary[j];
-        
-        //if this index is already there
-        if (indices.includes(index)) {
-          var vertPos = indices.indexOf(index)
-          new_boundary.push(vertPos)
-        }
-        else {
-          // Add vertex to geometry
-          var point = new THREE.Vector3(
-            this.citymodel.vertices[index][0],
-            this.citymodel.vertices[index][1],
-            this.citymodel.vertices[index][2]
-            );
-          geom.vertices.push(point)
-          
-          new_boundary.push(indices.length)
-          indices.push(index)
-        }
-      }
-
-      return new_boundary
     },
     getStats(vertices) {
       
