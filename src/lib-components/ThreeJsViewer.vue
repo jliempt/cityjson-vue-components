@@ -182,17 +182,19 @@ export default {
 
       //add AmbientLight (light that is only there that there's a minimum of light and you can see color)
       //kind of the natural daylight
-      var am_light = new THREE.AmbientLight(0xFFFFFF, 0.7); // soft white light
-      this.scene.add(am_light);
+      var ambLight = new THREE.AmbientLight(0xFFFFFF, 0.7); // soft white light
+      ambLight.name = "ambLight";
+      this.scene.add(ambLight);
 
       // Add directional light
-      var spot_light = new THREE.SpotLight(0xDDDDDD);
-      spot_light.position.set(84616, -1, 447422);
-      spot_light.target = this.scene;
-      spot_light.castShadow = true;
-      spot_light.intensity = 0.4
-      spot_light.position.normalize()
-      this.scene.add(spot_light);
+      var spotLight = new THREE.SpotLight(0xDDDDDD);
+      spotLight.position.set(84616, -1, 447422);
+      spotLight.target = this.scene;
+      spotLight.castShadow = true;
+      spotLight.intensity = 0.4
+      spotLight.position.normalize()
+      spotLight.name = "spotLight"
+      this.scene.add(spotLight);
       
       //render & orbit controls
       this.controls = new OrbitControls(this.camera, this.renderer.domElement);
@@ -201,21 +203,17 @@ export default {
       });
     },
     clearScene() {
-      while(this.scene.children.length > 0){ 
-        this.scene.remove(this.scene.children[0]); 
+      for ( var i = this.scene.children.length - 1; i >= 0; i-- ) {
+
+        if ( this.scene.children[ i ].name != "ambLight" && this.scene.children[ i ].name != "spotLight" ) {
+
+          this.scene.remove( this.scene.children[ i ] ); 
+
+        }
+
+        console.log(this.scene);
+
       }
-
-      var am_light = new THREE.AmbientLight(0xFFFFFF, 0.7); // soft white light
-      this.scene.add(am_light);
-
-      // Add directional light
-      var spot_light = new THREE.SpotLight(0xDDDDDD);
-      spot_light.position.set(84616, -1, 447422);
-      spot_light.target = this.scene;
-      spot_light.castShadow = true;
-      spot_light.intensity = 0.4
-      spot_light.position.normalize()
-      this.scene.add(spot_light);
     },
     //convert CityObjects to mesh and add them to the viewer
     async loadCityObjects(json) {      
@@ -286,6 +284,7 @@ export default {
         this.meshes.push(coMesh);
         this.mesh_index[_id] = coMesh;
       }
+      this.clearScene();
     },
     //convert json file to viwer-object
     async parseObject(cityObj, json) {
