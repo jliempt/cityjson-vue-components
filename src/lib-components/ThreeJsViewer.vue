@@ -63,6 +63,7 @@ export default {
     this.mesh_index = {};
     this.faceIDs = [];
     this.vertices = [];
+    this.colors = [];
   },
   async mounted() {
     this.$emit('rendering', true);
@@ -153,7 +154,7 @@ export default {
       this.raycaster.setFromCamera(this.mouse, this.camera);
 
       //calculate intersects
-      var intersects = this.raycaster.intersectObjects(this.meshes);
+      var intersects = this.raycaster.intersectObject(this.mesh);
 
       //if clicked on nothing return
       if (intersects.length == 0) {
@@ -162,7 +163,7 @@ export default {
       }
 
       //get the id of the first object that intersects (equals the clicked object)
-      var cityObjId = intersects[0].object.name;
+      var cityObjId = this.faceIDs[ intersects[0].faceIndex ];
       this.$emit('object_clicked', cityObjId);
     },
     initScene() {
@@ -284,12 +285,15 @@ export default {
       material.vertexColors = true;
 
       this.geometry.setAttribute( 'position', new THREE.Float32BufferAttribute( this.vertices, 3 ) );
+      this.geometry.setAttribute( 'color', new THREE.Float32BufferAttribute( this.colors, 3 ) );
 
       this.mesh = new THREE.Mesh( this.geometry, material );
       this.mesh.castShadow = true;
       this.mesh.receiveShadow = true;
 
       this.scene.add(this.mesh)
+
+      console.log(this.scene);
 
     },
     //convert json file to viwer-object
@@ -350,6 +354,9 @@ export default {
     },
     async parseShell(boundaries, cityObj)
     {
+
+      const coType = this.citymodel.CityObjects[cityObj].type;
+      const color = new THREE.Color( this.object_colors[ coType ] );
       // Contains the boundary but with the right verticeId
       var i; // 
       var j;
@@ -371,29 +378,19 @@ export default {
 
         if (boundary.length == 3) {
 
-          this.vertices.push(this.citymodel.vertices[ boundary[0] ][0]);
-          this.vertices.push(this.citymodel.vertices[ boundary[0] ][1]);
-          this.vertices.push(this.citymodel.vertices[ boundary[0] ][2]);
+          for ( var n = 0; n < 3; n++ ) {
 
-          this.vertices.push(this.citymodel.vertices[ boundary[1] ][0]);
-          this.vertices.push(this.citymodel.vertices[ boundary[1] ][1]);
-          this.vertices.push(this.citymodel.vertices[ boundary[1] ][2]);
+          this.vertices.push(this.citymodel.vertices[ boundary[n] ][0]);
+          this.vertices.push(this.citymodel.vertices[ boundary[n] ][1]);
+          this.vertices.push(this.citymodel.vertices[ boundary[n] ][2]);
 
-          this.vertices.push(this.citymodel.vertices[ boundary[2] ][0]);
-          this.vertices.push(this.citymodel.vertices[ boundary[2] ][1]);
-          this.vertices.push(this.citymodel.vertices[ boundary[2] ][2]);
+          this.colors.push( color.r, color.g, color.b );
 
-          // console.log(boundary);
-          // console.log(this.vertices.length);
-          // console.log(this.citymodel.vertices[boundary[0]]);
-          // // face.color.setHex( this.object_colors[ this.citymodel.CityObjects[cityObj].type ] );
-          // this.vertices.push(this.vertices[boundary[0]]);
-          // this.vertices.push(this.vertices[boundary[1]]);
-          // this.vertices.push(this.vertices[boundary[2]]);
-          // this.faceIDs.push( cityObj );
+          }
 
-        }
-        else if (boundary.length > 3) {
+          this.faceIDs.push( cityObj );
+
+        } else if (boundary.length > 3) {
           //create list of points
           var pList = []
           var k
@@ -405,8 +402,6 @@ export default {
               z: this.citymodel.vertices[ boundary[ k ] ][ 2 ]
             })
           }
-
-
 
           //get normal of these points
           var normal = await this.get_normal_newell(pList)
@@ -425,20 +420,17 @@ export default {
           //create faces based on triangulation
           for (k = 0; k < tr.length; k += 3) {
 
-            this.vertices.push(this.citymodel.vertices[boundary[tr[k]]][0]);
-            this.vertices.push(this.citymodel.vertices[boundary[tr[k]]][1]);
-            this.vertices.push(this.citymodel.vertices[boundary[tr[k]]][2]);
+            for ( n = 0; n < 3; n++ ){
 
-            this.vertices.push(this.citymodel.vertices[boundary[tr[k + 1]]][0]);
-            this.vertices.push(this.citymodel.vertices[boundary[tr[k + 1]]][1]);
-            this.vertices.push(this.citymodel.vertices[boundary[tr[k + 1]]][2]);
+              this.vertices.push(this.citymodel.vertices[boundary[tr[k + n]]][0]);
+              this.vertices.push(this.citymodel.vertices[boundary[tr[k + n]]][1]);
+              this.vertices.push(this.citymodel.vertices[boundary[tr[k + n]]][2]);
 
-            this.vertices.push(this.citymodel.vertices[boundary[tr[k + 2]]][0]);
-            this.vertices.push(this.citymodel.vertices[boundary[tr[k + 2]]][1]);
-            this.vertices.push(this.citymodel.vertices[boundary[tr[k + 2]]][2]);
+            this.colors.push( color.r, color.g, color.b );
+            }
 
             this.faceIDs.push( cityObj );
-                
+
           }
         }
       }
