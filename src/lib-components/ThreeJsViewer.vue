@@ -5,6 +5,7 @@
 <script>
 import $ from 'jquery'
 import * as THREE from 'three'
+// import { GeometryCompressionUtils } from 'three/examples/jsm/utils/GeometryCompressionUtils.js';
 import OrbitControls from 'three-orbitcontrols'
 import earcut from 'earcut'
 
@@ -61,9 +62,10 @@ export default {
     this.geometry = new THREE.BufferGeometry();
     this.mesh = null;
     this.mesh_index = {};
-    //this.faceIDs = [];
+    this.faceIDs = [];
     this.vertices = [];
     this.colors = [];
+    this.indices = [];
   },
   async mounted() {
     this.$emit('rendering', true);
@@ -74,7 +76,7 @@ export default {
       if (Object.keys(this.citymodel).length > 0)
       {
         this.initVertices();
-        this.focusOnModel();
+        // this.focusOnModel();
         await this.loadCityObjects();
       }
           
@@ -117,7 +119,7 @@ export default {
           {
             this.citymodel = newVal;
             this.initVertices();
-            this.focusOnModel();
+            // this.focusOnModel();
             await this.loadCityObjects();
           }
 
@@ -167,10 +169,13 @@ export default {
       this.$emit('object_clicked', cityObjId);
     },
     initScene() {
+
       this.scene = new THREE.Scene();
       var ratio = $("#viewer").width() / $("#viewer").height();
       this.camera = new THREE.PerspectiveCamera( 60, ratio, 0.001, 1000 );
       this.camera.up.set( 0, 0, 1 );
+      this.camera.position.set(0, 0, 2);
+      this.camera.lookAt( 0, 0, 0 );
       
       this.renderer = new THREE.WebGLRenderer({
         antialias: true
@@ -209,6 +214,9 @@ export default {
       this.controls.addEventListener('change', function() {
         self.renderer.render(self.scene, self.camera);
       });
+
+      this.controls.screenSpacePanning = true;
+
     },
     clearScene() {
       for ( var i = this.scene.children.length - 1; i >= 0; i-- ) {
@@ -264,9 +272,6 @@ export default {
         this.controls.target.set(avgX,
           avgY,
           avgZ);
-        
-        //enable movement parallel to ground
-        this.controls.screenSpacePanning = true;
 
         this.camera_init = true;
       }
@@ -284,8 +289,13 @@ export default {
       var material = new THREE.MeshLambertMaterial();
       material.vertexColors = true;
 
-      this.geometry.setAttribute( 'position', new THREE.Float32BufferAttribute( this.vertices, 3 ) );
-      this.geometry.setAttribute( 'color', new THREE.Float32BufferAttribute( this.colors, 3 ) );
+      function disposeArray() {
+        this.array = null;
+      }
+
+      this.geometry.setIndex( this.indices );
+      this.geometry.setAttribute( 'position', new THREE.Float32BufferAttribute( this.vertices, 3 ).onUpload( disposeArray ) );
+      this.geometry.setAttribute( 'color', new THREE.Float32BufferAttribute( this.colors, 3 ).onUpload( disposeArray ) );
       this.geometry.computeVertexNormals();
 
       this.mesh = new THREE.Mesh( this.geometry, material );
@@ -294,11 +304,16 @@ export default {
 
       this.scene.add(this.mesh)
 
-      console.log(this.scene);
+      delete this.citymodel.vertices;
 
     },
     //convert json file to viwer-object
     async parseObject(cityObj) {
+
+      const coType = this.citymodel.CityObjects[cityObj].type;
+      const color = new THREE.Color( this.object_colors[ coType ] );
+
+      var vertices = [];
 
       if (!(this.citymodel.CityObjects[cityObj].geometry &&
         this.citymodel.CityObjects[cityObj].geometry.length > 0))
@@ -320,7 +335,7 @@ export default {
           for (i = 0; i < shells.length; i++)
           {
 
-            await this.parseShell(shells[i], cityObj);
+            await this.parseShell(shells[i], vertices);
 
           }
 
@@ -328,7 +343,7 @@ export default {
 
           var surfaces = this.citymodel.CityObjects[cityObj].geometry[geom_i].boundaries;
 
-          await this.parseShell(surfaces, cityObj);
+          await this.parseShell(surfaces, vertices);
 
         } else if (geomType == "MultiSolid" || geomType == "CompositeSolid") {
           
@@ -338,7 +353,7 @@ export default {
 
             for (j = 0; j < solids[i].length; j++) {
 
-              await this.parseShell(solids[i][j], cityObj);
+              await this.parseShell(solids[i][j], vertices);
 
             }
 
@@ -347,17 +362,41 @@ export default {
         }
 
       }
-            
-      //needed for shadow
-      //geom.computeFaceNormals();
-      
+
+      var uniqueVertices = [ ...new Set(vertices) ];
+      const length = this.vertices.length / 3;
+
+      for ( v of uniqueVertices ) {
+
+          this.vertices.push( this.citymodel.vertices[ v ][ 0 ] );
+          this.vertices.push( this.citymodel.vertices[ v ][ 1 ] );
+          this.vertices.push( this.citymodel.vertices[ v ][ 2 ] );
+
+          this.colors.push( color.r, color.g, color.b );
+
+      }
+
+      for ( var v = 0; v < vertices.length; v += 3) {
+
+        var i1 = uniqueVertices.indexOf( vertices[ v ] ) + length;
+        var i2 = uniqueVertices.indexOf( vertices[ v + 1 ] ) + length;
+        var i3 = uniqueVertices.indexOf( vertices[ v + 2 ] ) + length;
+
+        this.indices.push( i1 );
+        this.indices.push( i2 );
+        this.indices.push( i3 );
+
+        this.faceIDs.push( cityObj );
+
+      }
+
       return ("")
+
     },
-    async parseShell(boundaries, cityObj)
+
+    async parseShell(boundaries, vertices)
     {
 
-      const coType = this.citymodel.CityObjects[cityObj].type;
-      const color = new THREE.Color( this.object_colors[ coType ] );
       // Contains the boundary but with the right verticeId
       var i; // 
       var j;
@@ -366,30 +405,21 @@ export default {
         var holes = []
 
         for (j = 0; j < boundaries[i].length; j++) {
-          //console.log(boundaries[i]);
+
           if (boundary.length > 0)
           {
             holes.push(boundary.length);
           }
-          //var new_boundary = this.extractLocalIndices(boundaries[i][j])
-          //boundary.push(...new_boundary);
+
           boundary.push(...boundaries[i][j])
         }
 
 
         if (boundary.length == 3) {
 
-          for ( var n = 0; n < 3; n++ ) {
-
-          this.vertices.push(this.citymodel.vertices[ boundary[n] ][0]);
-          this.vertices.push(this.citymodel.vertices[ boundary[n] ][1]);
-          this.vertices.push(this.citymodel.vertices[ boundary[n] ][2]);
-
-          this.colors.push( color.r, color.g, color.b );
-
-          }
-
-          //this.faceIDs.push( cityObj );
+          vertices.push( boundary[0], 
+                         boundary[1],
+                         boundary[2] );
 
         } else if (boundary.length > 3) {
           //create list of points
@@ -421,16 +451,11 @@ export default {
           //create faces based on triangulation
           for (k = 0; k < tr.length; k += 3) {
 
-            for ( n = 0; n < 3; n++ ){
+            for ( var n = 0; n < 3; n++ ){
 
-              this.vertices.push(this.citymodel.vertices[boundary[tr[k + n]]][0]);
-              this.vertices.push(this.citymodel.vertices[boundary[tr[k + n]]][1]);
-              this.vertices.push(this.citymodel.vertices[boundary[tr[k + n]]][2]);
+              vertices.push( boundary[tr[k + n] ] );
 
-            this.colors.push( color.r, color.g, color.b );
             }
-
-            //this.faceIDs.push( cityObj );
 
           }
         }
