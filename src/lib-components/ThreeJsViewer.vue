@@ -61,7 +61,7 @@ export default {
     this.geometry = new THREE.BufferGeometry();
     this.mesh = null;
     this.mesh_index = {};
-    this.faceIDs = [];
+    //this.faceIDs = [];
     this.vertices = [];
     this.colors = [];
   },
@@ -286,6 +286,7 @@ export default {
 
       this.geometry.setAttribute( 'position', new THREE.Float32BufferAttribute( this.vertices, 3 ) );
       this.geometry.setAttribute( 'color', new THREE.Float32BufferAttribute( this.colors, 3 ) );
+      this.geometry.computeVertexNormals();
 
       this.mesh = new THREE.Mesh( this.geometry, material );
       this.mesh.castShadow = true;
@@ -388,7 +389,7 @@ export default {
 
           }
 
-          this.faceIDs.push( cityObj );
+          //this.faceIDs.push( cityObj );
 
         } else if (boundary.length > 3) {
           //create list of points
@@ -429,7 +430,7 @@ export default {
             this.colors.push( color.r, color.g, color.b );
             }
 
-            this.faceIDs.push( cityObj );
+            //this.faceIDs.push( cityObj );
 
           }
         }
