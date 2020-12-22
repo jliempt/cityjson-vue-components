@@ -131,18 +131,19 @@ export default {
       deep: true
     },
     selected_objid: function(newId, oldId) {
-      if (oldId != null && oldId in this.citymodel.CityObjects)
-      {
-        var coType = this.citymodel.CityObjects[oldId].type;
-        this.mesh_index[oldId].material.color.setHex(this.object_colors[coType]);
-      }
+      console.log(newId, oldId);
+      // if (oldId != null && oldId in this.citymodel.CityObjects)
+      // {
+      //   var coType = this.citymodel.CityObjects[oldId].type;
+      //   this.mesh_index[oldId].material.color.setHex(this.object_colors[coType]);
+      // }
 
-      if (newId != null)
-      {
-        this.mesh_index[newId].material.color.setHex(0xdda500);
-      }
+      // if (newId != null)
+      // {
+      //   this.mesh_index[newId].material.color.setHex(0xdda500);
+      // }
 
-      this.renderer.render(this.scene, this.camera);
+      // this.renderer.render(this.scene, this.camera);
     }
   },
   methods: {
@@ -157,6 +158,8 @@ export default {
 
       //calculate intersects
       var intersects = this.raycaster.intersectObject(this.mesh);
+
+      console.log(intersects);
 
       //if clicked on nothing return
       if (intersects.length == 0) {
@@ -294,7 +297,7 @@ export default {
       }
 
       this.geometry.setIndex( this.indices );
-      this.geometry.setAttribute( 'position', new THREE.Float32BufferAttribute( this.vertices, 3 ).onUpload( disposeArray ) );
+      this.geometry.setAttribute( 'position', new THREE.Float32BufferAttribute( this.vertices, 3 ) );
       this.geometry.setAttribute( 'color', new THREE.Float32BufferAttribute( this.colors, 3 ).onUpload( disposeArray ) );
       this.geometry.computeVertexNormals();
 
