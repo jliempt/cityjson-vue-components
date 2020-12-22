@@ -63,6 +63,7 @@ export default {
     this.mesh = null;
     this.mesh_index = {};
     this.faceIDs = [];
+    this.idFaces = {};
     this.vertices = [];
     this.colors = [];
     this.indices = [];
@@ -131,22 +132,58 @@ export default {
       deep: true
     },
     selected_objid: function(newId, oldId) {
-      console.log(newId, oldId);
-      // if (oldId != null && oldId in this.citymodel.CityObjects)
-      // {
-      //   var coType = this.citymodel.CityObjects[oldId].type;
-      //   this.mesh_index[oldId].material.color.setHex(this.object_colors[coType]);
-      // }
 
-      // if (newId != null)
-      // {
-      //   this.mesh_index[newId].material.color.setHex(0xdda500);
-      // }
+      if (oldId != null && oldId in this.citymodel.CityObjects)
+      {
+        var coType = this.citymodel.CityObjects[oldId].type;
 
-      // this.renderer.render(this.scene, this.camera);
+        var color = new THREE.Color( this.object_colors[ coType ] );
+        var firstFaceID = this.idFaces[ oldId ][ 0 ];
+        var lastFaceID = this.idFaces[ oldId ][ 1 ];
+
+        this.updateColors( color, firstFaceID, lastFaceID );
+
+      }
+
+      if (newId != null)
+      {
+
+        color = new THREE.Color( 0xdda500 );
+        firstFaceID = this.idFaces[ newId ][ 0 ];
+        lastFaceID = this.idFaces[ newId ][ 1 ];
+
+        this.updateColors( color, firstFaceID, lastFaceID );
+        
+      }
+
+      this.renderer.render(this.scene, this.camera);
     }
   },
   methods: {
+    updateColors( color, firstFaceID, lastFaceID ){
+
+      for ( var i = firstFaceID; i <= lastFaceID; i ++ ) {
+
+        var vertices = [];
+
+          vertices.push( this.mesh.geometry.index.array[ i * 3 ] );
+          vertices.push( this.mesh.geometry.index.array[ i * 3 + 1 ] );
+          vertices.push( this.mesh.geometry.index.array[ i * 3 + 2 ] );
+
+        for ( var v of vertices ){
+
+          this.mesh.geometry.attributes.color.array[v * 3] = color.r;
+          this.mesh.geometry.attributes.color.array[v * 3 + 1] = color.g;
+          this.mesh.geometry.attributes.color.array[v * 3 + 2] = color.b;
+
+        }
+
+      }
+
+      this.mesh.geometry.colorsNeedUpdate = true;
+      this.mesh.geometry.attributes.color.needsUpdate = true;
+
+    },
     handleClick() {
       var rect = this.renderer.domElement.getBoundingClientRect();
       //get mouseposition
@@ -158,8 +195,6 @@ export default {
 
       //calculate intersects
       var intersects = this.raycaster.intersectObject(this.mesh);
-
-      console.log(intersects);
 
       //if clicked on nothing return
       if (intersects.length == 0) {
@@ -292,13 +327,9 @@ export default {
       var material = new THREE.MeshLambertMaterial();
       material.vertexColors = true;
 
-      function disposeArray() {
-        this.array = null;
-      }
-
       this.geometry.setIndex( this.indices );
       this.geometry.setAttribute( 'position', new THREE.Float32BufferAttribute( this.vertices, 3 ) );
-      this.geometry.setAttribute( 'color', new THREE.Float32BufferAttribute( this.colors, 3 ).onUpload( disposeArray ) );
+      this.geometry.setAttribute( 'color', new THREE.Float32BufferAttribute( this.colors, 3 ) );
       this.geometry.computeVertexNormals();
 
       this.mesh = new THREE.Mesh( this.geometry, material );
@@ -315,6 +346,7 @@ export default {
 
       const coType = this.citymodel.CityObjects[cityObj].type;
       const color = new THREE.Color( this.object_colors[ coType ] );
+      const firstFaceID = this.faceIDs.length;
 
       var vertices = [];
 
@@ -390,8 +422,10 @@ export default {
         this.indices.push( i3 );
 
         this.faceIDs.push( cityObj );
-
+        
       }
+
+      this.idFaces[ cityObj ] = [ firstFaceID, this.faceIDs.length - 1 ];
 
       return ("")
 
