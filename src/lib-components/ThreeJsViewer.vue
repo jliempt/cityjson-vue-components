@@ -42,17 +42,22 @@ export default {
         }
       }
     },
+
     background_color: {
       type: Number,
       default: 0xd9eefc
     }
+
   },
   data() {
+
     return {
       camera_init: false
     }
+    
   },
   beforeCreate() {
+
     this.scene = null;
     this.camera = null;
     this.renderer = null;
@@ -67,8 +72,11 @@ export default {
     this.vertices = [];
     this.colors = [];
     this.indices = [];
+
   },
+
   async mounted() {
+
     this.$emit('rendering', true);
 
     setTimeout(async () => {
@@ -93,13 +101,17 @@ export default {
 
       this.$emit('rendering', false);
     }, 25);
+
   },
+
   watch: {
+
     background_color: function(newVal, ) {
       this.renderer.setClearColor(newVal);
       
       this.renderer.render(this.scene, this.camera);
     },
+
     object_colors: {
       handler: function(newVal, ) {
       for (var i = 0; i < this.meshes.length; i++)
@@ -108,8 +120,11 @@ export default {
       this.renderer.render(this.scene, this.camera);
       },
       deep: true
+
     },
+
     citymodel: {
+
       handler: async function(newVal, ) {
         this.$emit('rendering', true);
 
@@ -131,36 +146,39 @@ export default {
       },
       deep: true
     },
-    selected_objid: function(newId, oldId) {
 
-      if (oldId != null && oldId in this.citymodel.CityObjects)
+    selected_objid: function(newID, oldID) {
+
+      if (oldID != null && oldID in this.citymodel.CityObjects)
       {
-        var coType = this.citymodel.CityObjects[oldId].type;
 
+        var coType = this.citymodel.CityObjects[oldID].type;
         var color = new THREE.Color( this.object_colors[ coType ] );
-        var firstFaceID = this.idFaces[ oldId ][ 0 ];
-        var lastFaceID = this.idFaces[ oldId ][ 1 ];
 
-        this.updateColors( color, firstFaceID, lastFaceID );
+        this.updateCOColor( color, oldID );
 
       }
 
-      if (newId != null)
+      if (newID != null)
       {
 
         color = new THREE.Color( 0xdda500 );
-        firstFaceID = this.idFaces[ newId ][ 0 ];
-        lastFaceID = this.idFaces[ newId ][ 1 ];
 
-        this.updateColors( color, firstFaceID, lastFaceID );
+        this.updateCOColor( color, newID );
         
       }
 
       this.renderer.render(this.scene, this.camera);
     }
+
   },
+
   methods: {
-    updateColors( color, firstFaceID, lastFaceID ){
+
+    updateCOColor( color, coID ){
+
+      var firstFaceID = this.idFaces[ coID ][ 0 ];
+      var lastFaceID = this.idFaces[ coID ][ 1 ];
 
       for ( var i = firstFaceID; i <= lastFaceID; i ++ ) {
 
@@ -184,28 +202,24 @@ export default {
       this.mesh.geometry.attributes.color.needsUpdate = true;
 
     },
+
     handleClick() {
       var rect = this.renderer.domElement.getBoundingClientRect();
-      //get mouseposition
       this.mouse.x = ((event.clientX - rect.left) / this.renderer.domElement.clientWidth) * 2 - 1;
       this.mouse.y = -( (event.clientY - rect.top) / this.renderer.domElement.clientHeight) * 2 + 1;
 
-      //get cameraposition
       this.raycaster.setFromCamera(this.mouse, this.camera);
-
-      //calculate intersects
       var intersects = this.raycaster.intersectObject(this.mesh);
 
-      //if clicked on nothing return
       if (intersects.length == 0) {
         this.$emit('object_clicked', null);
         return
       }
 
-      //get the id of the first object that intersects (equals the clicked object)
       var cityObjId = this.faceIDs[ intersects[0].faceIndex ];
       this.$emit('object_clicked', cityObjId);
     },
+
     initScene() {
 
       this.scene = new THREE.Scene();
@@ -215,39 +229,27 @@ export default {
       this.camera.position.set(0, 0, 2);
       this.camera.lookAt( 0, 0, 0 );
       
-      this.renderer = new THREE.WebGLRenderer({
-        antialias: true
-      });
+      this.renderer = new THREE.WebGLRenderer( { antialias: true } );
       var viewer = document.getElementById("viewer");
       viewer.appendChild( this.renderer.domElement );
       this.renderer.setSize($("#viewer").width(), $("#viewer").height());
       this.renderer.setClearColor(this.background_color);
       this.renderer.shadowMap.enabled = true;
       this.renderer.shadowMap.type = THREE.PCFSoftShadowMap;
-            
-      let self = this;
 
-      // add raycaster and mouse (for clickable objects)
       this.raycaster = new THREE.Raycaster()
       this.mouse = new THREE.Vector2();
 
-      //add AmbientLight (light that is only there that there's a minimum of light and you can see color)
-      //kind of the natural daylight
-      var ambLight = new THREE.AmbientLight(0xFFFFFF, 0.7); // soft white light
+      var ambLight = new THREE.AmbientLight(0xFFFFFF, 0.7);
       ambLight.name = "ambLight";
-      this.scene.add(ambLight);
-
-      // Add directional light
-      var spotLight = new THREE.SpotLight(0xDDDDDD);
-      spotLight.position.set(84616, -1, 447422);
+      var spotLight = new THREE.SpotLight( 0xDDDDDD, 0.4 );
+      spotLight.name = "spotLight"
+      spotLight.position.set(0, -1, 1);
       spotLight.target = this.scene;
       spotLight.castShadow = true;
-      spotLight.intensity = 0.4
-      spotLight.position.normalize()
-      spotLight.name = "spotLight"
-      this.scene.add(spotLight);
+      this.scene.add(spotLight, ambLight);
       
-      //render & orbit controls
+      let self = this;
       this.controls = new OrbitControls(this.camera, this.renderer.domElement);
       this.controls.addEventListener('change', function() {
         self.renderer.render(self.scene, self.camera);
@@ -256,7 +258,9 @@ export default {
       this.controls.screenSpacePanning = true;
 
     },
+
     clearScene() {
+
       for ( var i = this.scene.children.length - 1; i >= 0; i-- ) {
 
         if ( this.scene.children[ i ].name != "ambLight" && this.scene.children[ i ].name != "spotLight" ) {
@@ -269,32 +273,45 @@ export default {
 
       this.mesh = null;
       this.geometry = new THREE.BufferGeometry();
+      this.faceIDs = [];
+      this.idFaces = {};
+      this.vertices = [];
+      this.colors = [];
+      this.indices = [];
 
     },
-    //convert CityObjects to mesh and add them to the viewer
+
     initVertices() {
 
       //create one geometry that contains all vertices (in normalized form)
       //normalize must be done for all coordinates as otherwise the objects are at same pos and have the same size
-      var normGeom = new THREE.Geometry()
-        var i
+      var normGeom = new THREE.Geometry();
+      var i;
+
       for (i = 0; i < this.citymodel.vertices.length; i++) {
+
         var point = new THREE.Vector3(
           this.citymodel.vertices[i][0],
           this.citymodel.vertices[i][1],
           this.citymodel.vertices[i][2]
           );
+
           normGeom.vertices.push(point)
+
       }
+
       normGeom.normalize()
       
       for (i = 0; i < this.citymodel.vertices.length; i++) {
+
         this.citymodel.vertices[i][0] = normGeom.vertices[i].x;
         this.citymodel.vertices[i][1] = normGeom.vertices[i].y;
         this.citymodel.vertices[i][2] = normGeom.vertices[i].z;
+
       }
 
     },
+
     focusOnModel() {
 
       var stats = this.getStats(this.citymodel.vertices)
@@ -315,13 +332,13 @@ export default {
       }
 
     },
+
     async loadCityObjects() {      
       
-      //iterate through all cityObjects
       for (var cityObj in this.citymodel.CityObjects) {
-        
+
         await this.parseObject(cityObj)
-          
+        
       }
 
       var material = new THREE.MeshLambertMaterial();
@@ -341,7 +358,7 @@ export default {
       delete this.citymodel.vertices;
 
     },
-    //convert json file to viwer-object
+
     async parseObject(cityObj) {
 
       const coType = this.citymodel.CityObjects[cityObj].type;
@@ -361,8 +378,7 @@ export default {
         //each geometrytype must be handled different
         var geomType = this.citymodel.CityObjects[cityObj].geometry[geom_i].type
         
-        var i;
-        var j;
+        var i, j;
 
         if (geomType == "Solid") {
           var shells = this.citymodel.CityObjects[cityObj].geometry[geom_i].boundaries;
@@ -413,13 +429,11 @@ export default {
 
       for ( var v = 0; v < vertices.length; v += 3) {
 
-        var i1 = uniqueVertices.indexOf( vertices[ v ] ) + length;
-        var i2 = uniqueVertices.indexOf( vertices[ v + 1 ] ) + length;
-        var i3 = uniqueVertices.indexOf( vertices[ v + 2 ] ) + length;
+        var i0 = uniqueVertices.indexOf( vertices[ v ] ) + length;
+        var i1 = uniqueVertices.indexOf( vertices[ v + 1 ] ) + length;
+        var i2 = uniqueVertices.indexOf( vertices[ v + 2 ] ) + length;
 
-        this.indices.push( i1 );
-        this.indices.push( i2 );
-        this.indices.push( i3 );
+        this.indices.push( i0, i1, i2 );
 
         this.faceIDs.push( cityObj );
         
@@ -434,9 +448,8 @@ export default {
     async parseShell(boundaries, vertices)
     {
 
-      // Contains the boundary but with the right verticeId
-      var i; // 
-      var j;
+      var i, j;
+
       for (i = 0; i < boundaries.length; i++) {
         var boundary = []
         var holes = []
@@ -498,6 +511,7 @@ export default {
         }
       }
     },
+
     getStats(vertices) {
       
       var minX = Number.MAX_VALUE;
@@ -535,6 +549,7 @@ export default {
       return ([minX, minY, minZ, avgX, avgY, avgZ])
       
     },
+
     //-- calculate normal of a set of points
     get_normal_newell(indices) {
       
@@ -556,6 +571,7 @@ export default {
       var b = new THREE.Vector3(n[0], n[1], n[2]);
       return(b.normalize())
     },
+
     to_2d(p, n) {
       p = new THREE.Vector3(p.x, p.y, p.z)
       var x3 = new THREE.Vector3(1.1, 1.1, 1.1);
