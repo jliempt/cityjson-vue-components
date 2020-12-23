@@ -77,6 +77,8 @@ export default {
 
   async mounted() {
 
+    console.log("mounted");
+
     this.$emit('rendering', true);
 
     setTimeout(async () => {
@@ -84,9 +86,16 @@ export default {
 
       if (Object.keys(this.citymodel).length > 0)
       {
-        this.initVertices();
+        var date = new Date();
+        var start = date.getTime();
+        // this.initVertices();
         // this.focusOnModel();
+        console.log(performance.memory);
         await this.loadCityObjects();
+
+        date = new Date();
+        var end = date.getTime();
+        console.log(end-start);
       }
           
       this.renderer.render( this.scene, this.camera );
@@ -134,7 +143,7 @@ export default {
           if (Object.keys(newVal).length > 0)
           {
             this.citymodel = newVal;
-            this.initVertices();
+            // this.initVertices();
             // this.focusOnModel();
             await this.loadCityObjects();
           }
@@ -334,11 +343,20 @@ export default {
     },
 
     async loadCityObjects() {      
+
+      var i = 0;
+      // var len = Object.keys(this.citymodel.CityObjects).length;
       
       for (var cityObj in this.citymodel.CityObjects) {
 
+        if ( i % 1000 == 0 ){
+          console.log(i);
+          console.log(performance.memory);
+        }
+
         await this.parseObject(cityObj)
-        
+
+        i += 1;
       }
 
       var material = new THREE.MeshLambertMaterial();
@@ -347,6 +365,29 @@ export default {
       this.geometry.setIndex( this.indices );
       this.geometry.setAttribute( 'position', new THREE.Float32BufferAttribute( this.vertices, 3 ) );
       this.geometry.setAttribute( 'color', new THREE.Float32BufferAttribute( this.colors, 3 ) );
+      this.geometry.computeBoundingSphere();
+
+      const center = this.geometry.boundingSphere.center;
+      const radius = this.geometry.boundingSphere.radius;
+
+      const s = radius === 0 ? 1 : 1.0 / radius;
+
+      console.log(s);
+      console.log(this.geometry.attributes.position.array[0], this.geometry.attributes.position.array[1], this.geometry.attributes.position.array[2]);
+
+      const matrix = new THREE.Matrix4();
+      matrix.set(
+        s, 0, 0, - s * center.x,
+        0, s, 0, - s * center.y,
+        0, 0, s, - s * center.z,
+        0, 0, 0, 1
+      );
+
+      this.geometry.applyMatrix4( matrix );
+      console.log(this.geometry.attributes.position.array[0], this.geometry.attributes.position.array[1], this.geometry.attributes.position.array[2]);
+
+      console.log(this.geometry);
+
       this.geometry.computeVertexNormals();
 
       this.mesh = new THREE.Mesh( this.geometry, material );
