@@ -1,7 +1,6 @@
 <template>
   <div id="main_content">
     <three-js-viewer
-      :citymodel="citymodel"
       :selected_objid="selected_id"
       @object_clicked="selected_id = $event">
     </three-js-viewer>
@@ -13,8 +12,6 @@ import { ThreeJsViewer } from '../src/entry'
 
 import 'bootstrap/dist/css/bootstrap.css'
 
-import test_cm from './data/geores_testdata.json';
-
 export default {
   name: 'ThreeJsExample',
   components: {
@@ -22,7 +19,6 @@ export default {
   },
   data() {
     return {
-      citymodel: test_cm,
       selected_id: null
     }
   }

@@ -8,6 +8,10 @@ import * as THREE from 'three'
 // import { GeometryCompressionUtils } from 'three/examples/jsm/utils/GeometryCompressionUtils.js';
 import OrbitControls from 'three-orbitcontrols'
 import earcut from 'earcut'
+import JSONStream from 'JSONStream'
+import request from 'request'
+import Stream from 'event-stream'
+import ReadableStreamClone from 'readable-stream-clone'
 
 export default {
   name: 'ThreeJsViewer',
@@ -56,7 +60,7 @@ export default {
     }
     
   },
-  beforeCreate() {
+  async beforeCreate() {
 
     this.scene = null;
     this.camera = null;
@@ -72,35 +76,58 @@ export default {
     this.vertices = [];
     this.colors = [];
     this.indices = [];
+    this.cmvertices = [];
+    this.cos = {};
+    this.i = 0;
 
   },
 
   async mounted() {
 
-    console.log("mounted");
-
     this.$emit('rendering', true);
 
     setTimeout(async () => {
-      this.initScene();
 
-      if (Object.keys(this.citymodel).length > 0)
-      {
-        var date = new Date();
-        var start = date.getTime();
-        // this.initVertices();
-        // this.focusOnModel();
-        console.log(performance.memory);
-        await this.loadCityObjects();
+          var self = this;
 
-        date = new Date();
-        var end = date.getTime();
-        console.log(end-start);
-      }
-          
-      this.renderer.render( this.scene, this.camera );
+          this.initScene();
 
-      let self = this;
+          const cmURL = 'http://localhost:8080/test.json';
+
+          // Retrieve citymodel and clone twice. First clone is used to retrieve vertices from buffer, second to iteratively retrieve CityObjects.
+          var rawStream = request({ url: cmURL });
+
+          var streamClone1 = new ReadableStreamClone(rawStream);
+          var streamClone2 = new ReadableStreamClone(rawStream);
+
+          streamClone1
+          .pipe( JSONStream.parse( 'vertices' ) )
+          .pipe( Stream.mapSync( function ( data ) {
+
+              // Store vertices
+              self.cmvertices = data;
+            
+              var stream = streamClone2
+              .pipe( JSONStream.parse( 'CityObjects.$*' ) )
+              .pipe( Stream.mapSync(function ( data ) {
+
+                // Iteratively parse CityObjects
+                self.parseObject( data.key, data.value );
+                
+              }))
+
+            stream.on( 'end', function() {
+
+              // Parse it all into a BufferGeometry and add to scene
+              self.createGeometry();
+              self.renderer.render( self.scene, self.camera );
+
+            } )
+
+          } ) )
+              
+          // Already render before streaming has finished, so that the background is shown in the meantime.
+          this.renderer.render( this.scene, this.camera );
 
       $("#viewer").dblclick(function(eventData) {
         if (eventData.button == 0) { //leftClick
@@ -130,30 +157,6 @@ export default {
       },
       deep: true
 
-    },
-
-    citymodel: {
-
-      handler: async function(newVal, ) {
-        this.$emit('rendering', true);
-
-        setTimeout(async () => {
-          this.clearScene();
-
-          if (Object.keys(newVal).length > 0)
-          {
-            this.citymodel = newVal;
-            // this.initVertices();
-            // this.focusOnModel();
-            await this.loadCityObjects();
-          }
-
-          this.renderer.render(this.scene, this.camera);
-    
-          this.$emit('rendering', false);
-        }, 25);
-      },
-      deep: true
     },
 
     selected_objid: function(newID, oldID) {
@@ -280,6 +283,7 @@ export default {
 
       }
 
+      // TODO: properly reinitialise all properties and test if this function works well.
       this.mesh = null;
       this.geometry = new THREE.BufferGeometry();
       this.faceIDs = [];
@@ -342,22 +346,7 @@ export default {
 
     },
 
-    async loadCityObjects() {      
-
-      var i = 0;
-      // var len = Object.keys(this.citymodel.CityObjects).length;
-      
-      for (var cityObj in this.citymodel.CityObjects) {
-
-        if ( i % 1000 == 0 ){
-          console.log(i);
-          console.log(performance.memory);
-        }
-
-        await this.parseObject(cityObj)
-
-        i += 1;
-      }
+    async createGeometry() {      
 
       var material = new THREE.MeshLambertMaterial();
       material.vertexColors = true;
@@ -372,9 +361,6 @@ export default {
 
       const s = radius === 0 ? 1 : 1.0 / radius;
 
-      console.log(s);
-      console.log(this.geometry.attributes.position.array[0], this.geometry.attributes.position.array[1], this.geometry.attributes.position.array[2]);
-
       const matrix = new THREE.Matrix4();
       matrix.set(
         s, 0, 0, - s * center.x,
@@ -384,11 +370,10 @@ export default {
       );
 
       this.geometry.applyMatrix4( matrix );
-      console.log(this.geometry.attributes.position.array[0], this.geometry.attributes.position.array[1], this.geometry.attributes.position.array[2]);
-
-      console.log(this.geometry);
 
       this.geometry.computeVertexNormals();
+
+      console.log(this.geometry);
 
       this.mesh = new THREE.Mesh( this.geometry, material );
       this.mesh.castShadow = true;
@@ -396,33 +381,38 @@ export default {
 
       this.scene.add(this.mesh)
 
-      delete this.citymodel.vertices;
+      delete this.cmvertices;
 
     },
 
-    async parseObject(cityObj) {
+    async parseObject(id, cityObj) {
 
-      const coType = this.citymodel.CityObjects[cityObj].type;
+      if ( this.i % 100 == 0){
+        console.log(this.i);
+      }
+      this.i += 1;
+
+      const coType = cityObj.type;
       const color = new THREE.Color( this.object_colors[ coType ] );
       const firstFaceID = this.faceIDs.length;
 
       var vertices = [];
 
-      if (!(this.citymodel.CityObjects[cityObj].geometry &&
-        this.citymodel.CityObjects[cityObj].geometry.length > 0))
+      if (!(cityObj.geometry &&
+        cityObj.geometry.length > 0))
       {
         return;
       }
 
-      for (var geom_i = 0; geom_i < this.citymodel.CityObjects[cityObj].geometry.length; geom_i++)
+      for (var geom_i = 0; geom_i < cityObj.geometry.length; geom_i++)
       {
         //each geometrytype must be handled different
-        var geomType = this.citymodel.CityObjects[cityObj].geometry[geom_i].type
+        var geomType = cityObj.geometry[geom_i].type
         
         var i, j;
 
         if (geomType == "Solid") {
-          var shells = this.citymodel.CityObjects[cityObj].geometry[geom_i].boundaries;
+          var shells = cityObj.geometry[geom_i].boundaries;
 
           for (i = 0; i < shells.length; i++)
           {
@@ -433,13 +423,13 @@ export default {
 
         } else if (geomType == "MultiSurface" || geomType == "CompositeSurface") {
 
-          var surfaces = this.citymodel.CityObjects[cityObj].geometry[geom_i].boundaries;
+          var surfaces = cityObj.geometry[geom_i].boundaries;
 
           await this.parseShell(surfaces, vertices);
 
         } else if (geomType == "MultiSolid" || geomType == "CompositeSolid") {
           
-          var solids = this.citymodel.CityObjects[cityObj].geometry[geom_i].boundaries;
+          var solids = cityObj.geometry[geom_i].boundaries;
 
           for (i = 0; i < solids.length; i++) {
 
@@ -460,9 +450,9 @@ export default {
 
       for ( v of uniqueVertices ) {
 
-          this.vertices.push( this.citymodel.vertices[ v ][ 0 ] );
-          this.vertices.push( this.citymodel.vertices[ v ][ 1 ] );
-          this.vertices.push( this.citymodel.vertices[ v ][ 2 ] );
+          this.vertices.push( this.cmvertices[ v ][ 0 ] );
+          this.vertices.push( this.cmvertices[ v ][ 1 ] );
+          this.vertices.push( this.cmvertices[ v ][ 2 ] );
 
           this.colors.push( color.r, color.g, color.b );
 
@@ -476,11 +466,11 @@ export default {
 
         this.indices.push( i0, i1, i2 );
 
-        this.faceIDs.push( cityObj );
+        this.faceIDs.push( id );
         
       }
 
-      this.idFaces[ cityObj ] = [ firstFaceID, this.faceIDs.length - 1 ];
+      this.idFaces[ id ] = [ firstFaceID, this.faceIDs.length - 1 ];
 
       return ("")
 
@@ -519,9 +509,9 @@ export default {
           for (k = 0; k < boundary.length; k++) {
 
             pList.push({
-              x: this.citymodel.vertices[ boundary[ k ] ][ 0 ],
-              y: this.citymodel.vertices[ boundary[ k ] ][ 1 ],
-              z: this.citymodel.vertices[ boundary[ k ] ][ 2 ]
+              x: this.cmvertices[ boundary[ k ] ][ 0 ],
+              y: this.cmvertices[ boundary[ k ] ][ 1 ],
+              z: this.cmvertices[ boundary[ k ] ][ 2 ]
             })
           }
 
@@ -593,7 +583,7 @@ export default {
 
     //-- calculate normal of a set of points
     get_normal_newell(indices) {
-      
+
       // find normal with Newell's method
       var n = [0.0, 0.0, 0.0];
       
