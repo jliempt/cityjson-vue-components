@@ -313,59 +313,6 @@ export default {
 
 		},
 
-		initVertices() {
-
-			//create one geometry that contains all vertices (in normalized form)
-			//normalize must be done for all coordinates as otherwise the objects are at same pos and have the same size
-			var normGeom = new THREE.Geometry();
-			var i;
-
-			for ( i = 0; i < this.citymodel.vertices.length; i ++ ) {
-
-				var point = new THREE.Vector3(
-					this.citymodel.vertices[ i ][ 0 ],
-					this.citymodel.vertices[ i ][ 1 ],
-					this.citymodel.vertices[ i ][ 2 ]
-				);
-
-				normGeom.vertices.push( point );
-
-			}
-
-			normGeom.normalize();
-
-			for ( i = 0; i < this.citymodel.vertices.length; i ++ ) {
-
-				this.citymodel.vertices[ i ][ 0 ] = normGeom.vertices[ i ].x;
-				this.citymodel.vertices[ i ][ 1 ] = normGeom.vertices[ i ].y;
-				this.citymodel.vertices[ i ][ 2 ] = normGeom.vertices[ i ].z;
-
-			}
-
-		},
-
-		focusOnModel() {
-
-			var stats = this.getStats( this.citymodel.vertices );
-			var avgX = stats[ 3 ];
-			var avgY = stats[ 4 ];
-			var avgZ = stats[ 5 ];
-
-			if ( ! this.camera_init ) {
-
-				this.camera.position.set( 0, 0, 2 );
-				this.camera.lookAt( avgX, avgY, avgZ );
-
-				this.controls.target.set( avgX,
-					avgY,
-					avgZ );
-
-				this.camera_init = true;
-
-			}
-
-		},
-
 		async createGeometry() {
 
 			var material = new THREE.MeshLambertMaterial();
@@ -573,52 +520,6 @@ export default {
 				}
 
 			}
-
-		},
-
-		getStats( vertices ) {
-
-			var minX = Number.MAX_VALUE;
-			var minY = Number.MAX_VALUE;
-			var minZ = Number.MAX_VALUE;
-
-			var sumX = 0;
-			var sumY = 0;
-			var sumZ = 0;
-			var counter = 0;
-
-			for ( var i in vertices ) {
-
-				sumX = sumX + vertices[ i ][ 0 ];
-				if ( vertices[ i ][ 0 ] < minX ) {
-
-					minX = vertices[ i ][ 0 ];
-
-				}
-
-				sumY = sumY + vertices[ i ][ 1 ];
-				if ( vertices[ i ][ 1 ] < minY ) {
-
-					minY = vertices[ i ][ 1 ];
-
-				}
-
-				if ( vertices[ i ][ 2 ] < minZ ) {
-
-					minZ = vertices[ i ][ 2 ];
-
-				}
-
-				sumZ = sumZ + vertices[ i ][ 2 ];
-				counter = counter + 1;
-
-			}
-
-			var avgX = sumX / counter;
-			var avgY = sumY / counter;
-			var avgZ = sumZ / counter;
-
-			return ( [ minX, minY, minZ, avgX, avgY, avgZ ] );
 
 		},
 
