@@ -1,626 +1,677 @@
 <template>
-  <div id="viewer" class="col-12 px-0 h-100"></div>
+  <div
+    id="viewer"
+    class="col-12 px-0 h-100"
+  />
 </template>
 
 <script>
-import $ from 'jquery'
-import * as THREE from 'three'
+import $ from 'jquery';
+import * as THREE from 'three';
 // import { GeometryCompressionUtils } from 'three/examples/jsm/utils/GeometryCompressionUtils.js';
-import OrbitControls from 'three-orbitcontrols'
-import earcut from 'earcut'
-import JSONStream from 'JSONStream'
-import request from 'request'
-import Stream from 'event-stream'
-import ReadableStreamClone from 'readable-stream-clone'
+import OrbitControls from 'three-orbitcontrols';
+import earcut from 'earcut';
+import JSONStream from 'JSONStream';
+import request from 'request';
+import Stream from 'event-stream';
+import ReadableStreamClone from 'readable-stream-clone';
 
 export default {
-  name: 'ThreeJsViewer',
-  props: {
-    citymodel: Object,
-    selected_objid: String,
-    object_colors: {
-      type: Object,
-      default: function() {
-        return {
-          "Building": 0x7497df,
-          "BuildingPart": 0x7497df,
-          "BuildingInstallation": 0x7497df,
-          "Bridge": 0x999999,
-          "BridgePart": 0x999999,
-          "BridgeInstallation": 0x999999,
-          "BridgeConstructionElement": 0x999999,
-          "CityObjectGroup": 0xffffb3,
-          "CityFurniture": 0xcc0000,
-          "GenericCityObject": 0xcc0000,
-          "LandUse": 0xffffb3,
-          "PlantCover": 0x39ac39,
-          "Railway": 0x000000,
-          "Road": 0x999999,
-          "SolitaryVegetationObject": 0x39ac39,
-          "TINRelief": 0xffdb99,
-          "TransportSquare": 0x999999,
-          "Tunnel": 0x999999,
-          "TunnelPart": 0x999999,
-          "TunnelInstallation": 0x999999,
-          "WaterBody": 0x4da6ff
-        }
-      }
-    },
-
-    background_color: {
-      type: Number,
-      default: 0xd9eefc
-    }
-
-  },
-  data() {
-
-    return {
-      camera_init: false
-    }
-    
-  },
-  async beforeCreate() {
-
-    this.scene = null;
-    this.camera = null;
-    this.renderer = null;
-    this.controls = null;
-    this.raycaster = null;
-    this.mouse = null;
-    this.geometry = new THREE.BufferGeometry();
-    this.mesh = null;
-    this.mesh_index = {};
-    this.faceIDs = [];
-    this.idFaces = {};
-    this.vertices = [];
-    this.colors = [];
-    this.indices = [];
-    this.cmvertices = [];
-    this.cos = {};
-    this.i = 0;
-
-  },
-
-  async mounted() {
-
-    this.$emit('rendering', true);
-
-    setTimeout(async () => {
-
-          var self = this;
-
-          this.initScene();
-
-          const cmURL = 'http://localhost:8080/test.json';
-
-          // Retrieve citymodel and clone twice. First clone is used to retrieve vertices from buffer, second to iteratively retrieve CityObjects.
-          var rawStream = request({ url: cmURL });
-
-          var streamClone1 = new ReadableStreamClone(rawStream);
-          var streamClone2 = new ReadableStreamClone(rawStream);
-
-          streamClone1
-          .pipe( JSONStream.parse( 'vertices' ) )
-          .pipe( Stream.mapSync( function ( data ) {
-
-              // Store vertices
-              self.cmvertices = data;
-            
-              var stream = streamClone2
-              .pipe( JSONStream.parse( 'CityObjects.$*' ) )
-              .pipe( Stream.mapSync(function ( data ) {
+	name: 'ThreeJsViewer',
+	props: {
+		citymodel: Object,
+		selected_objid: String,
+		object_colors: {
+			type: Object,
+			default: function () {
 
-                // Iteratively parse CityObjects
-                self.parseObject( data.key, data.value );
-                
-              }))
+				return {
+					"Building": 0x7497df,
+					"BuildingPart": 0x7497df,
+					"BuildingInstallation": 0x7497df,
+					"Bridge": 0x999999,
+					"BridgePart": 0x999999,
+					"BridgeInstallation": 0x999999,
+					"BridgeConstructionElement": 0x999999,
+					"CityObjectGroup": 0xffffb3,
+					"CityFurniture": 0xcc0000,
+					"GenericCityObject": 0xcc0000,
+					"LandUse": 0xffffb3,
+					"PlantCover": 0x39ac39,
+					"Railway": 0x000000,
+					"Road": 0x999999,
+					"SolitaryVegetationObject": 0x39ac39,
+					"TINRelief": 0xffdb99,
+					"TransportSquare": 0x999999,
+					"Tunnel": 0x999999,
+					"TunnelPart": 0x999999,
+					"TunnelInstallation": 0x999999,
+					"WaterBody": 0x4da6ff
+				};
 
-            stream.on( 'end', function() {
+			}
+		},
 
-              // Parse it all into a BufferGeometry and add to scene
-              self.createGeometry();
-              self.renderer.render( self.scene, self.camera );
+		background_color: {
+			type: Number,
+			default: 0xd9eefc
+		}
 
-            } )
+	},
+	data() {
 
-          } ) )
-              
-          // Already render before streaming has finished, so that the background is shown in the meantime.
-          this.renderer.render( this.scene, this.camera );
+		return {
+			camera_init: false
+		};
 
-      $("#viewer").dblclick(function(eventData) {
-        if (eventData.button == 0) { //leftClick
-          self.handleClick()
-        }
-      });
+	},
 
-      this.$emit('rendering', false);
-    }, 25);
+	watch: {
 
-  },
+		background_color: function ( newVal, ) {
 
-  watch: {
+			this.renderer.setClearColor( newVal );
 
-    background_color: function(newVal, ) {
-      this.renderer.setClearColor(newVal);
-      
-      this.renderer.render(this.scene, this.camera);
-    },
+			this.renderer.render( this.scene, this.camera );
 
-    object_colors: {
-      handler: function(newVal, ) {
-      for (var i = 0; i < this.meshes.length; i++)
-        this.meshes[i].material.color.setHex(newVal[this.citymodel.CityObjects[this.meshes[i].name].type]);
+		},
 
-      this.renderer.render(this.scene, this.camera);
-      },
-      deep: true
+		object_colors: {
+			handler: function ( newVal, ) {
 
-    },
+				for ( var i = 0; i < this.meshes.length; i ++ )
+					this.meshes[ i ].material.color.setHex( newVal[ this.citymodel.CityObjects[ this.meshes[ i ].name ].type ] );
 
-    selected_objid: function(newID, oldID) {
+				this.renderer.render( this.scene, this.camera );
 
-      if (oldID != null && oldID in this.citymodel.CityObjects)
-      {
+			},
+			deep: true
 
-        var coType = this.citymodel.CityObjects[oldID].type;
-        var color = new THREE.Color( this.object_colors[ coType ] );
+		},
 
-        this.updateCOColor( color, oldID );
+		selected_objid: function ( newID, oldID ) {
 
-      }
+			if ( oldID != null && oldID in this.citymodel.CityObjects ) {
 
-      if (newID != null)
-      {
+				var coType = this.citymodel.CityObjects[ oldID ].type;
+				var color = new THREE.Color( this.object_colors[ coType ] );
 
-        color = new THREE.Color( 0xdda500 );
+				this.updateCOColor( color, oldID );
 
-        this.updateCOColor( color, newID );
-        
-      }
+			}
 
-      this.renderer.render(this.scene, this.camera);
-    }
+			if ( newID != null ) {
 
-  },
+				color = new THREE.Color( 0xdda500 );
 
-  methods: {
+				this.updateCOColor( color, newID );
 
-    updateCOColor( color, coID ){
+			}
 
-      var firstFaceID = this.idFaces[ coID ][ 0 ];
-      var lastFaceID = this.idFaces[ coID ][ 1 ];
+			this.renderer.render( this.scene, this.camera );
 
-      for ( var i = firstFaceID; i <= lastFaceID; i ++ ) {
+		}
 
-        var vertices = [];
+	},
+	async beforeCreate() {
 
-          vertices.push( this.mesh.geometry.index.array[ i * 3 ] );
-          vertices.push( this.mesh.geometry.index.array[ i * 3 + 1 ] );
-          vertices.push( this.mesh.geometry.index.array[ i * 3 + 2 ] );
+		this.scene = null;
+		this.camera = null;
+		this.renderer = null;
+		this.controls = null;
+		this.raycaster = null;
+		this.mouse = null;
+		this.geometry = new THREE.BufferGeometry();
+		this.mesh = null;
+		this.mesh_index = {};
+		this.faceIDs = [];
+		this.idFaces = {};
+		this.vertices = [];
+		this.colors = [];
+		this.indices = [];
+		this.cmvertices = [];
+		this.cos = {};
+		this.i = 0;
 
-        for ( var v of vertices ){
+	},
 
-          this.mesh.geometry.attributes.color.array[v * 3] = color.r;
-          this.mesh.geometry.attributes.color.array[v * 3 + 1] = color.g;
-          this.mesh.geometry.attributes.color.array[v * 3 + 2] = color.b;
+	async mounted() {
 
-        }
+		this.$emit( 'rendering', true );
 
-      }
+		setTimeout( async () => {
 
-      this.mesh.geometry.colorsNeedUpdate = true;
-      this.mesh.geometry.attributes.color.needsUpdate = true;
+			var self = this;
 
-    },
+			this.initScene();
 
-    handleClick() {
-      var rect = this.renderer.domElement.getBoundingClientRect();
-      this.mouse.x = ((event.clientX - rect.left) / this.renderer.domElement.clientWidth) * 2 - 1;
-      this.mouse.y = -( (event.clientY - rect.top) / this.renderer.domElement.clientHeight) * 2 + 1;
+			const cmURL = 'http://localhost:8080/test.json';
 
-      this.raycaster.setFromCamera(this.mouse, this.camera);
-      var intersects = this.raycaster.intersectObject(this.mesh);
+			// Retrieve citymodel and clone twice. First clone is used to retrieve vertices from buffer, second to iteratively retrieve CityObjects.
+			var rawStream = request( { url: cmURL } );
 
-      if (intersects.length == 0) {
-        this.$emit('object_clicked', null);
-        return
-      }
+			var streamClone1 = new ReadableStreamClone( rawStream );
+			var streamClone2 = new ReadableStreamClone( rawStream );
 
-      var cityObjId = this.faceIDs[ intersects[0].faceIndex ];
-      this.$emit('object_clicked', cityObjId);
-    },
+			streamClone1
+				.pipe( JSONStream.parse( 'vertices' ) )
+				.pipe( Stream.mapSync( function ( data ) {
 
-    initScene() {
+					// Store vertices
+					self.cmvertices = data;
 
-      this.scene = new THREE.Scene();
-      var ratio = $("#viewer").width() / $("#viewer").height();
-      this.camera = new THREE.PerspectiveCamera( 60, ratio, 0.001, 1000 );
-      this.camera.up.set( 0, 0, 1 );
-      this.camera.position.set(0, 0, 2);
-      this.camera.lookAt( 0, 0, 0 );
-      
-      this.renderer = new THREE.WebGLRenderer( { antialias: true } );
-      var viewer = document.getElementById("viewer");
-      viewer.appendChild( this.renderer.domElement );
-      this.renderer.setSize($("#viewer").width(), $("#viewer").height());
-      this.renderer.setClearColor(this.background_color);
-      this.renderer.shadowMap.enabled = true;
-      this.renderer.shadowMap.type = THREE.PCFSoftShadowMap;
+					var stream = streamClone2
+						.pipe( JSONStream.parse( 'CityObjects.$*' ) )
+						.pipe( Stream.mapSync( function ( data ) {
 
-      this.raycaster = new THREE.Raycaster()
-      this.mouse = new THREE.Vector2();
+							// Iteratively parse CityObjects
+							self.parseObject( data.key, data.value );
 
-      var ambLight = new THREE.AmbientLight(0xFFFFFF, 0.7);
-      ambLight.name = "ambLight";
-      var spotLight = new THREE.SpotLight( 0xDDDDDD, 0.4 );
-      spotLight.name = "spotLight"
-      spotLight.position.set(0, -1, 1);
-      spotLight.target = this.scene;
-      spotLight.castShadow = true;
-      this.scene.add(spotLight, ambLight);
-      
-      let self = this;
-      this.controls = new OrbitControls(this.camera, this.renderer.domElement);
-      this.controls.addEventListener('change', function() {
-        self.renderer.render(self.scene, self.camera);
-      });
+						} ) );
 
-      this.controls.screenSpacePanning = true;
+					stream.on( 'end', function () {
 
-    },
+						// Parse it all into a BufferGeometry and add to scene
+						self.createGeometry();
+						self.renderer.render( self.scene, self.camera );
 
-    clearScene() {
+					} );
 
-      for ( var i = this.scene.children.length - 1; i >= 0; i-- ) {
+				} ) );
 
-        if ( this.scene.children[ i ].name != "ambLight" && this.scene.children[ i ].name != "spotLight" ) {
+			// Already render before streaming has finished, so that the background is shown in the meantime.
+			this.renderer.render( this.scene, this.camera );
 
-          this.scene.remove( this.scene.children[ i ] ); 
+			$( "#viewer" ).dblclick( function ( eventData ) {
 
-        }
+				if ( eventData.button == 0 ) { //leftClick
 
-      }
+					self.handleClick();
 
-      // TODO: properly reinitialise all properties and test if this function works well.
-      this.mesh = null;
-      this.geometry = new THREE.BufferGeometry();
-      this.faceIDs = [];
-      this.idFaces = {};
-      this.vertices = [];
-      this.colors = [];
-      this.indices = [];
+				}
 
-    },
+			} );
 
-    initVertices() {
+			this.$emit( 'rendering', false );
 
-      //create one geometry that contains all vertices (in normalized form)
-      //normalize must be done for all coordinates as otherwise the objects are at same pos and have the same size
-      var normGeom = new THREE.Geometry();
-      var i;
+		}, 25 );
 
-      for (i = 0; i < this.citymodel.vertices.length; i++) {
+	},
 
-        var point = new THREE.Vector3(
-          this.citymodel.vertices[i][0],
-          this.citymodel.vertices[i][1],
-          this.citymodel.vertices[i][2]
-          );
+	methods: {
 
-          normGeom.vertices.push(point)
+		updateCOColor( color, coID ) {
 
-      }
+			var firstFaceID = this.idFaces[ coID ][ 0 ];
+			var lastFaceID = this.idFaces[ coID ][ 1 ];
 
-      normGeom.normalize()
-      
-      for (i = 0; i < this.citymodel.vertices.length; i++) {
+			for ( var i = firstFaceID; i <= lastFaceID; i ++ ) {
 
-        this.citymodel.vertices[i][0] = normGeom.vertices[i].x;
-        this.citymodel.vertices[i][1] = normGeom.vertices[i].y;
-        this.citymodel.vertices[i][2] = normGeom.vertices[i].z;
+				var vertices = [];
 
-      }
+				vertices.push( this.mesh.geometry.index.array[ i * 3 ] );
+				vertices.push( this.mesh.geometry.index.array[ i * 3 + 1 ] );
+				vertices.push( this.mesh.geometry.index.array[ i * 3 + 2 ] );
 
-    },
+				for ( var v of vertices ) {
 
-    focusOnModel() {
+					this.mesh.geometry.attributes.color.array[ v * 3 ] = color.r;
+					this.mesh.geometry.attributes.color.array[ v * 3 + 1 ] = color.g;
+					this.mesh.geometry.attributes.color.array[ v * 3 + 2 ] = color.b;
 
-      var stats = this.getStats(this.citymodel.vertices)
-      var avgX = stats[3]
-      var avgY = stats[4]
-      var avgZ = stats[5]
-      
-      if (!this.camera_init)
-      {
-        this.camera.position.set(0, 0, 2);
-        this.camera.lookAt(avgX, avgY, avgZ);
-        
-        this.controls.target.set(avgX,
-          avgY,
-          avgZ);
+				}
 
-        this.camera_init = true;
-      }
+			}
 
-    },
+			this.mesh.geometry.colorsNeedUpdate = true;
+			this.mesh.geometry.attributes.color.needsUpdate = true;
 
-    async createGeometry() {      
+		},
 
-      var material = new THREE.MeshLambertMaterial();
-      material.vertexColors = true;
+		handleClick() {
 
-      this.geometry.setIndex( this.indices );
-      this.geometry.setAttribute( 'position', new THREE.Float32BufferAttribute( this.vertices, 3 ) );
-      this.geometry.setAttribute( 'color', new THREE.Float32BufferAttribute( this.colors, 3 ) );
-      this.geometry.computeBoundingSphere();
+			var rect = this.renderer.domElement.getBoundingClientRect();
+			this.mouse.x = ( ( event.clientX - rect.left ) / this.renderer.domElement.clientWidth ) * 2 - 1;
+			this.mouse.y = - ( ( event.clientY - rect.top ) / this.renderer.domElement.clientHeight ) * 2 + 1;
 
-      const center = this.geometry.boundingSphere.center;
-      const radius = this.geometry.boundingSphere.radius;
+			this.raycaster.setFromCamera( this.mouse, this.camera );
+			var intersects = this.raycaster.intersectObject( this.mesh );
 
-      const s = radius === 0 ? 1 : 1.0 / radius;
+			if ( intersects.length == 0 ) {
 
-      const matrix = new THREE.Matrix4();
-      matrix.set(
-        s, 0, 0, - s * center.x,
-        0, s, 0, - s * center.y,
-        0, 0, s, - s * center.z,
-        0, 0, 0, 1
-      );
+				this.$emit( 'object_clicked', null );
+				return;
 
-      this.geometry.applyMatrix4( matrix );
+			}
 
-      this.geometry.computeVertexNormals();
+			var cityObjId = this.faceIDs[ intersects[ 0 ].faceIndex ];
+			this.$emit( 'object_clicked', cityObjId );
 
-      console.log(this.geometry);
+		},
 
-      this.mesh = new THREE.Mesh( this.geometry, material );
-      this.mesh.castShadow = true;
-      this.mesh.receiveShadow = true;
+		initScene() {
 
-      this.scene.add(this.mesh)
+			this.scene = new THREE.Scene();
+			var ratio = $( "#viewer" ).width() / $( "#viewer" ).height();
+			this.camera = new THREE.PerspectiveCamera( 60, ratio, 0.001, 1000 );
+			this.camera.up.set( 0, 0, 1 );
+			this.camera.position.set( 0, 0, 2 );
+			this.camera.lookAt( 0, 0, 0 );
 
-      delete this.cmvertices;
+			this.renderer = new THREE.WebGLRenderer( { antialias: true } );
+			var viewer = document.getElementById( "viewer" );
+			viewer.appendChild( this.renderer.domElement );
+			this.renderer.setSize( $( "#viewer" ).width(), $( "#viewer" ).height() );
+			this.renderer.setClearColor( this.background_color );
+			this.renderer.shadowMap.enabled = true;
+			this.renderer.shadowMap.type = THREE.PCFSoftShadowMap;
 
-    },
+			this.raycaster = new THREE.Raycaster();
+			this.mouse = new THREE.Vector2();
 
-    async parseObject(id, cityObj) {
+			var ambLight = new THREE.AmbientLight( 0xFFFFFF, 0.7 );
+			ambLight.name = "ambLight";
+			var spotLight = new THREE.SpotLight( 0xDDDDDD, 0.4 );
+			spotLight.name = "spotLight";
+			spotLight.position.set( 0, - 1, 1 );
+			spotLight.target = this.scene;
+			spotLight.castShadow = true;
+			this.scene.add( spotLight, ambLight );
 
-      if ( this.i % 100 == 0){
-        console.log(this.i);
-      }
-      this.i += 1;
+			let self = this;
+			this.controls = new OrbitControls( this.camera, this.renderer.domElement );
+			this.controls.addEventListener( 'change', function () {
 
-      const coType = cityObj.type;
-      const color = new THREE.Color( this.object_colors[ coType ] );
-      const firstFaceID = this.faceIDs.length;
+				self.renderer.render( self.scene, self.camera );
 
-      var vertices = [];
+			} );
 
-      if (!(cityObj.geometry &&
-        cityObj.geometry.length > 0))
-      {
-        return;
-      }
+			this.controls.screenSpacePanning = true;
 
-      for (var geom_i = 0; geom_i < cityObj.geometry.length; geom_i++)
-      {
-        //each geometrytype must be handled different
-        var geomType = cityObj.geometry[geom_i].type
-        
-        var i, j;
+		},
 
-        if (geomType == "Solid") {
-          var shells = cityObj.geometry[geom_i].boundaries;
+		clearScene() {
 
-          for (i = 0; i < shells.length; i++)
-          {
+			for ( var i = this.scene.children.length - 1; i >= 0; i -- ) {
 
-            await this.parseShell(shells[i], vertices);
+				if ( this.scene.children[ i ].name != "ambLight" && this.scene.children[ i ].name != "spotLight" ) {
 
-          }
+					this.scene.remove( this.scene.children[ i ] );
 
-        } else if (geomType == "MultiSurface" || geomType == "CompositeSurface") {
+				}
 
-          var surfaces = cityObj.geometry[geom_i].boundaries;
+			}
 
-          await this.parseShell(surfaces, vertices);
+			// TODO: properly reinitialise all properties and test if this function works well.
+			this.mesh = null;
+			this.geometry = new THREE.BufferGeometry();
+			this.faceIDs = [];
+			this.idFaces = {};
+			this.vertices = [];
+			this.colors = [];
+			this.indices = [];
 
-        } else if (geomType == "MultiSolid" || geomType == "CompositeSolid") {
-          
-          var solids = cityObj.geometry[geom_i].boundaries;
+		},
 
-          for (i = 0; i < solids.length; i++) {
+		initVertices() {
 
-            for (j = 0; j < solids[i].length; j++) {
+			//create one geometry that contains all vertices (in normalized form)
+			//normalize must be done for all coordinates as otherwise the objects are at same pos and have the same size
+			var normGeom = new THREE.Geometry();
+			var i;
 
-              await this.parseShell(solids[i][j], vertices);
+			for ( i = 0; i < this.citymodel.vertices.length; i ++ ) {
 
-            }
+				var point = new THREE.Vector3(
+					this.citymodel.vertices[ i ][ 0 ],
+					this.citymodel.vertices[ i ][ 1 ],
+					this.citymodel.vertices[ i ][ 2 ]
+				);
 
-          }
+				normGeom.vertices.push( point );
 
-        }
+			}
 
-      }
+			normGeom.normalize();
 
-      var uniqueVertices = [ ...new Set(vertices) ];
-      const length = this.vertices.length / 3;
+			for ( i = 0; i < this.citymodel.vertices.length; i ++ ) {
 
-      for ( v of uniqueVertices ) {
+				this.citymodel.vertices[ i ][ 0 ] = normGeom.vertices[ i ].x;
+				this.citymodel.vertices[ i ][ 1 ] = normGeom.vertices[ i ].y;
+				this.citymodel.vertices[ i ][ 2 ] = normGeom.vertices[ i ].z;
 
-          this.vertices.push( this.cmvertices[ v ][ 0 ] );
-          this.vertices.push( this.cmvertices[ v ][ 1 ] );
-          this.vertices.push( this.cmvertices[ v ][ 2 ] );
+			}
 
-          this.colors.push( color.r, color.g, color.b );
+		},
 
-      }
+		focusOnModel() {
 
-      for ( var v = 0; v < vertices.length; v += 3) {
+			var stats = this.getStats( this.citymodel.vertices );
+			var avgX = stats[ 3 ];
+			var avgY = stats[ 4 ];
+			var avgZ = stats[ 5 ];
 
-        var i0 = uniqueVertices.indexOf( vertices[ v ] ) + length;
-        var i1 = uniqueVertices.indexOf( vertices[ v + 1 ] ) + length;
-        var i2 = uniqueVertices.indexOf( vertices[ v + 2 ] ) + length;
+			if ( ! this.camera_init ) {
 
-        this.indices.push( i0, i1, i2 );
+				this.camera.position.set( 0, 0, 2 );
+				this.camera.lookAt( avgX, avgY, avgZ );
 
-        this.faceIDs.push( id );
-        
-      }
+				this.controls.target.set( avgX,
+					avgY,
+					avgZ );
 
-      this.idFaces[ id ] = [ firstFaceID, this.faceIDs.length - 1 ];
+				this.camera_init = true;
 
-      return ("")
+			}
 
-    },
+		},
 
-    async parseShell(boundaries, vertices)
-    {
+		async createGeometry() {
 
-      var i, j;
+			var material = new THREE.MeshLambertMaterial();
+			material.vertexColors = true;
 
-      for (i = 0; i < boundaries.length; i++) {
-        var boundary = []
-        var holes = []
+			this.geometry.setIndex( this.indices );
+			this.geometry.setAttribute( 'position', new THREE.Float32BufferAttribute( this.vertices, 3 ) );
+			this.geometry.setAttribute( 'color', new THREE.Float32BufferAttribute( this.colors, 3 ) );
+			this.geometry.computeBoundingSphere();
 
-        for (j = 0; j < boundaries[i].length; j++) {
+			const center = this.geometry.boundingSphere.center;
+			const radius = this.geometry.boundingSphere.radius;
 
-          if (boundary.length > 0)
-          {
-            holes.push(boundary.length);
-          }
+			const s = radius === 0 ? 1 : 1.0 / radius;
 
-          boundary.push(...boundaries[i][j])
-        }
+			const matrix = new THREE.Matrix4();
+			matrix.set(
+				s, 0, 0, - s * center.x,
+				0, s, 0, - s * center.y,
+				0, 0, s, - s * center.z,
+				0, 0, 0, 1
+			);
 
+			this.geometry.applyMatrix4( matrix );
 
-        if (boundary.length == 3) {
+			this.geometry.computeVertexNormals();
 
-          vertices.push( boundary[0], 
-                         boundary[1],
-                         boundary[2] );
+			console.log( this.geometry );
 
-        } else if (boundary.length > 3) {
-          //create list of points
-          var pList = []
-          var k
-          for (k = 0; k < boundary.length; k++) {
+			this.mesh = new THREE.Mesh( this.geometry, material );
+			this.mesh.castShadow = true;
+			this.mesh.receiveShadow = true;
 
-            pList.push({
-              x: this.cmvertices[ boundary[ k ] ][ 0 ],
-              y: this.cmvertices[ boundary[ k ] ][ 1 ],
-              z: this.cmvertices[ boundary[ k ] ][ 2 ]
-            })
-          }
+			this.scene.add( this.mesh );
 
-          //get normal of these points
-          var normal = await this.get_normal_newell(pList)
-          
-          //convert to 2d (for triangulation)
-          var pv = []
-          for (k = 0; k < pList.length; k++) {
-            var re = await this.to_2d(pList[k], normal)
-            pv.push(re.x)
-            pv.push(re.y)
-          }
-            
-          //triangulate
-          var tr = await earcut(pv, holes, 2);
-          
-          //create faces based on triangulation
-          for (k = 0; k < tr.length; k += 3) {
+			delete this.cmvertices;
 
-            for ( var n = 0; n < 3; n++ ){
+		},
 
-              vertices.push( boundary[tr[k + n] ] );
+		async parseObject( id, cityObj ) {
 
-            }
+			if ( this.i % 100 == 0 ) {
 
-          }
-        }
-      }
-    },
+				console.log( this.i );
 
-    getStats(vertices) {
-      
-      var minX = Number.MAX_VALUE;
-      var minY = Number.MAX_VALUE;
-      var minZ = Number.MAX_VALUE;
-      
-      var sumX = 0;
-      var sumY = 0;
-      var sumZ = 0
-      var counter = 0
-      
-      for (var i in vertices){
-        sumX = sumX + vertices[i][0]
-        if (vertices[i][0] < minX){
-          minX = vertices[i][0]
-        }
-        
-        sumY = sumY + vertices[i][1]
-        if (vertices[i][1] < minY){
-          minY = vertices[i][1]
-        }
-        
-        if (vertices[i][2] < minZ){
-          minZ = vertices[i][2]
-        }
-        
-        sumZ = sumZ + vertices[i][2]
-        counter = counter + 1
-      }
-      
-      var avgX = sumX/counter
-      var avgY = sumY/counter
-      var avgZ = sumZ/counter
-      
-      return ([minX, minY, minZ, avgX, avgY, avgZ])
-      
-    },
+			}
 
-    //-- calculate normal of a set of points
-    get_normal_newell(indices) {
+			this.i += 1;
 
-      // find normal with Newell's method
-      var n = [0.0, 0.0, 0.0];
-      
-      for (var i = 0; i < indices.length; i++) {
-        var nex = i + 1;
+			const coType = cityObj.type;
+			const color = new THREE.Color( this.object_colors[ coType ] );
+			const firstFaceID = this.faceIDs.length;
 
-        if ( nex == indices.length) {
-          nex = 0;
-        }
+			var vertices = [];
 
-        n[0] = n[0] + ( (indices[i].y - indices[nex].y) * (indices[i].z + indices[nex].z) );
-        n[1] = n[1] + ( (indices[i].z - indices[nex].z) * (indices[i].x + indices[nex].x) );
-        n[2] = n[2] + ( (indices[i].x - indices[nex].x) * (indices[i].y + indices[nex].y) );
-      }
+			if ( ! ( cityObj.geometry &&
+        cityObj.geometry.length > 0 ) ) {
 
-      var b = new THREE.Vector3(n[0], n[1], n[2]);
-      return(b.normalize())
-    },
+				return;
 
-    to_2d(p, n) {
-      p = new THREE.Vector3(p.x, p.y, p.z)
-      var x3 = new THREE.Vector3(1.1, 1.1, 1.1);
-      if ( x3.distanceTo(n) < 0.01 ) {
-        x3.add(new THREE.Vector3(1.0, 2.0, 3.0));
-      }
-      var tmp = x3.dot(n);
-      var tmp2 = n.clone();
-      tmp2.multiplyScalar(tmp);
-      x3.sub(tmp2);
-      x3.normalize();
-      var y3 = n.clone();
-      y3.cross(x3);
-      let x = p.dot(x3);
-      let y = p.dot(y3);
-      var re = {x: x, y: y};
-      return re;
-    }
-  }
-}
+			}
+
+			for ( var geom_i = 0; geom_i < cityObj.geometry.length; geom_i ++ ) {
+
+				//each geometrytype must be handled different
+				var geomType = cityObj.geometry[ geom_i ].type;
+
+				var i, j;
+
+				if ( geomType == "Solid" ) {
+
+					var shells = cityObj.geometry[ geom_i ].boundaries;
+
+					for ( i = 0; i < shells.length; i ++ ) {
+
+						await this.parseShell( shells[ i ], vertices );
+
+					}
+
+				} else if ( geomType == "MultiSurface" || geomType == "CompositeSurface" ) {
+
+					var surfaces = cityObj.geometry[ geom_i ].boundaries;
+
+					await this.parseShell( surfaces, vertices );
+
+				} else if ( geomType == "MultiSolid" || geomType == "CompositeSolid" ) {
+
+					var solids = cityObj.geometry[ geom_i ].boundaries;
+
+					for ( i = 0; i < solids.length; i ++ ) {
+
+						for ( j = 0; j < solids[ i ].length; j ++ ) {
+
+							await this.parseShell( solids[ i ][ j ], vertices );
+
+						}
+
+					}
+
+				}
+
+			}
+
+			var uniqueVertices = [ ...new Set( vertices ) ];
+			const length = this.vertices.length / 3;
+
+			for ( v of uniqueVertices ) {
+
+				this.vertices.push( this.cmvertices[ v ][ 0 ] );
+				this.vertices.push( this.cmvertices[ v ][ 1 ] );
+				this.vertices.push( this.cmvertices[ v ][ 2 ] );
+
+				this.colors.push( color.r, color.g, color.b );
+
+			}
+
+			for ( var v = 0; v < vertices.length; v += 3 ) {
+
+				var i0 = uniqueVertices.indexOf( vertices[ v ] ) + length;
+				var i1 = uniqueVertices.indexOf( vertices[ v + 1 ] ) + length;
+				var i2 = uniqueVertices.indexOf( vertices[ v + 2 ] ) + length;
+
+				this.indices.push( i0, i1, i2 );
+
+				this.faceIDs.push( id );
+
+			}
+
+			this.idFaces[ id ] = [ firstFaceID, this.faceIDs.length - 1 ];
+
+			return ( "" );
+
+		},
+
+		async parseShell( boundaries, vertices ) {
+
+			var i, j;
+
+			for ( i = 0; i < boundaries.length; i ++ ) {
+
+				var boundary = [];
+				var holes = [];
+
+				for ( j = 0; j < boundaries[ i ].length; j ++ ) {
+
+					if ( boundary.length > 0 ) {
+
+						holes.push( boundary.length );
+
+					}
+
+					boundary.push( ...boundaries[ i ][ j ] );
+
+				}
+
+
+				if ( boundary.length == 3 ) {
+
+					vertices.push( boundary[ 0 ],
+						boundary[ 1 ],
+						boundary[ 2 ] );
+
+				} else if ( boundary.length > 3 ) {
+
+					//create list of points
+					var pList = [];
+					var k;
+					for ( k = 0; k < boundary.length; k ++ ) {
+
+						pList.push( {
+							x: this.cmvertices[ boundary[ k ] ][ 0 ],
+							y: this.cmvertices[ boundary[ k ] ][ 1 ],
+							z: this.cmvertices[ boundary[ k ] ][ 2 ]
+						} );
+
+					}
+
+					//get normal of these points
+					var normal = await this.get_normal_newell( pList );
+
+					//convert to 2d (for triangulation)
+					var pv = [];
+					for ( k = 0; k < pList.length; k ++ ) {
+
+						var re = await this.to_2d( pList[ k ], normal );
+						pv.push( re.x );
+						pv.push( re.y );
+
+					}
+
+					//triangulate
+					var tr = await earcut( pv, holes, 2 );
+
+					//create faces based on triangulation
+					for ( k = 0; k < tr.length; k += 3 ) {
+
+						for ( var n = 0; n < 3; n ++ ) {
+
+							vertices.push( boundary[ tr[ k + n ] ] );
+
+						}
+
+					}
+
+				}
+
+			}
+
+		},
+
+		getStats( vertices ) {
+
+			var minX = Number.MAX_VALUE;
+			var minY = Number.MAX_VALUE;
+			var minZ = Number.MAX_VALUE;
+
+			var sumX = 0;
+			var sumY = 0;
+			var sumZ = 0;
+			var counter = 0;
+
+			for ( var i in vertices ) {
+
+				sumX = sumX + vertices[ i ][ 0 ];
+				if ( vertices[ i ][ 0 ] < minX ) {
+
+					minX = vertices[ i ][ 0 ];
+
+				}
+
+				sumY = sumY + vertices[ i ][ 1 ];
+				if ( vertices[ i ][ 1 ] < minY ) {
+
+					minY = vertices[ i ][ 1 ];
+
+				}
+
+				if ( vertices[ i ][ 2 ] < minZ ) {
+
+					minZ = vertices[ i ][ 2 ];
+
+				}
+
+				sumZ = sumZ + vertices[ i ][ 2 ];
+				counter = counter + 1;
+
+			}
+
+			var avgX = sumX / counter;
+			var avgY = sumY / counter;
+			var avgZ = sumZ / counter;
+
+			return ( [ minX, minY, minZ, avgX, avgY, avgZ ] );
+
+		},
+
+		//-- calculate normal of a set of points
+		get_normal_newell( indices ) {
+
+			// find normal with Newell's method
+			var n = [ 0.0, 0.0, 0.0 ];
+
+			for ( var i = 0; i < indices.length; i ++ ) {
+
+				var nex = i + 1;
+
+				if ( nex == indices.length ) {
+
+					nex = 0;
+
+				}
+
+				n[ 0 ] = n[ 0 ] + ( ( indices[ i ].y - indices[ nex ].y ) * ( indices[ i ].z + indices[ nex ].z ) );
+				n[ 1 ] = n[ 1 ] + ( ( indices[ i ].z - indices[ nex ].z ) * ( indices[ i ].x + indices[ nex ].x ) );
+				n[ 2 ] = n[ 2 ] + ( ( indices[ i ].x - indices[ nex ].x ) * ( indices[ i ].y + indices[ nex ].y ) );
+
+			}
+
+			var b = new THREE.Vector3( n[ 0 ], n[ 1 ], n[ 2 ] );
+			return ( b.normalize() );
+
+		},
+
+		to_2d( p, n ) {
+
+			p = new THREE.Vector3( p.x, p.y, p.z );
+			var x3 = new THREE.Vector3( 1.1, 1.1, 1.1 );
+			if ( x3.distanceTo( n ) < 0.01 ) {
+
+				x3.add( new THREE.Vector3( 1.0, 2.0, 3.0 ) );
+
+			}
+
+			var tmp = x3.dot( n );
+			var tmp2 = n.clone();
+			tmp2.multiplyScalar( tmp );
+			x3.sub( tmp2 );
+			x3.normalize();
+			var y3 = n.clone();
+			y3.cross( x3 );
+			let x = p.dot( x3 );
+			let y = p.dot( y3 );
+			var re = { x: x, y: y };
+			return re;
+
+		}
+	}
+};
 </script>

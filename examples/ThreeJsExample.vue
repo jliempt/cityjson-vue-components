@@ -2,27 +2,29 @@
   <div id="main_content">
     <three-js-viewer
       :selected_objid="selected_id"
-      @object_clicked="selected_id = $event">
-    </three-js-viewer>
+      @object_clicked="selected_id = $event"
+    />
   </div>
 </template>
 
 <script>
-import { ThreeJsViewer } from '../src/entry'
+import { ThreeJsViewer } from '../src/entry';
 
-import 'bootstrap/dist/css/bootstrap.css'
+import 'bootstrap/dist/css/bootstrap.css';
 
 export default {
-  name: 'ThreeJsExample',
-  components: {
-    ThreeJsViewer
-  },
-  data() {
-    return {
-      selected_id: null
-    }
-  }
-}
+	name: 'ThreeJsExample',
+	components: {
+		ThreeJsViewer
+	},
+	data() {
+
+		return {
+			selected_id: null
+		};
+
+	}
+};
 </script>
 
 <style>
