@@ -145,7 +145,7 @@ export default {
 
 			this.initScene();
 
-			const cmURL = 'http://localhost:8080/test.json';
+			const cmURL = 'http://localhost:8080/denhaag.json';
 
 			// Retrieve citymodel and clone twice. First clone is used to retrieve vertices from buffer, second to iteratively retrieve CityObjects.
 			var rawStream = request( { url: cmURL } );
@@ -153,34 +153,38 @@ export default {
 			var streamClone1 = new ReadableStreamClone( rawStream );
 			var streamClone2 = new ReadableStreamClone( rawStream );
 
-			streamClone1
-				.pipe( JSONStream.parse( 'vertices' ) )
-				.pipe( Stream.mapSync( function ( data ) {
-
-					// Store vertices
-					self.cmvertices = data;
-
-					var stream = streamClone2
-						.pipe( JSONStream.parse( 'CityObjects.$*' ) )
-						.pipe( Stream.mapSync( function ( data ) {
-
-							// Iteratively parse CityObjects
-							self.parseObject( data.key, data.value );
-
-						} ) );
-
-					stream.on( 'end', function () {
-
-						// Parse it all into a BufferGeometry and add to scene
-						self.createGeometry();
-						self.renderer.render( self.scene, self.camera );
-
-					} );
-
-				} ) );
-
 			// Already render before streaming has finished, so that the background is shown in the meantime.
 			this.renderer.render( this.scene, this.camera );
+
+			await new Promise( resolve =>
+				streamClone1
+					.pipe( JSONStream.parse( 'vertices' ) )
+					.pipe( Stream.mapSync( function ( data ) {
+
+						// Store vertices
+						self.cmvertices = data;
+
+					} ) )
+					.on( 'end', resolve ) );
+
+			console.log( "Vertices done" );
+
+			await new Promise( resolve =>
+				streamClone2
+					.pipe( JSONStream.parse( 'CityObjects.$*' ) )
+					.pipe( Stream.mapSync( function ( data ) {
+
+						// Iteratively parse CityObjects
+						self.parseObject( data.key, data.value );
+
+					} ) )
+					.on( 'end', resolve ) );
+
+			console.log( "COs done" );
+
+			// Parse it all into a BufferGeometry and add to scene
+			self.createGeometry();
+			self.renderer.render( self.scene, self.camera );
 
 			$( "#viewer" ).dblclick( function ( eventData ) {
 
