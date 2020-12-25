@@ -8,7 +8,6 @@
 <script>
 import $ from 'jquery';
 import * as THREE from 'three';
-// import { GeometryCompressionUtils } from 'three/examples/jsm/utils/GeometryCompressionUtils.js';
 import OrbitControls from 'three-orbitcontrols';
 import earcut from 'earcut';
 import JSONStream from 'JSONStream';
@@ -132,6 +131,9 @@ export default {
 		this.cmvertices = [];
 		this.cos = {};
 		this.i = 0;
+		this.rawStream;
+		this.verticesLength = 0;
+		this.targetProxy;
 
 	},
 
@@ -145,42 +147,65 @@ export default {
 
 			this.initScene();
 
-			const cmURL = 'http://localhost:8080/test.json';
+			// Already render before streaming has finished, so that the background is shown in the meantime.
+			this.renderer.render( this.scene, this.camera );
+
+			const cmURL = 'http://localhost:8080/basis1.json';
 
 			// Retrieve citymodel and clone twice. First clone is used to retrieve vertices from buffer, second to iteratively retrieve CityObjects.
 			var rawStream = request( { url: cmURL } );
 
 			var streamClone1 = new ReadableStreamClone( rawStream );
 			var streamClone2 = new ReadableStreamClone( rawStream );
+			var streamClone3 = new ReadableStreamClone( rawStream );
 
-			streamClone1
-				.pipe( JSONStream.parse( 'vertices' ) )
-				.pipe( Stream.mapSync( function ( data ) {
+			await new Promise( resolve =>
+				streamClone1
+					.pipe( JSONStream.parse( 'CityObjects.$*' ) )
+					.pipe( Stream.mapSync( function ( data ) {
 
-					// Store vertices
-					self.cmvertices = data;
+						// Iteratively parse CityObjects
+						self.parseObject( data.key, data.value );
 
-					var stream = streamClone2
-						.pipe( JSONStream.parse( 'CityObjects.$*' ) )
-						.pipe( Stream.mapSync( function ( data ) {
+					} ) )
+					.on( 'end', resolve ) );
 
-							// Iteratively parse CityObjects
-							self.parseObject( data.key, data.value );
+			console.log( "COs done" );
 
-						} ) );
+			await new Promise( resolve =>
+				streamClone2
+					.pipe( JSONStream.parse( 'vertices.*' ) )
+					.pipe( Stream.mapSync( function ( data ) {
 
-					stream.on( 'end', function () {
+						self.verticesLength += 1;
 
-						// Parse it all into a BufferGeometry and add to scene
-						self.createGeometry();
-						self.renderer.render( self.scene, self.camera );
+					} ) )
+					.on( 'end', resolve ) );
 
-					} );
+			console.log( "Vertices length done" );
 
-				} ) );
+			this.geometry.setAttribute( 'position', new THREE.Float32BufferAttribute( new Float32Array( this.verticesLength * 3 ), 3 ) );
+			const positions = this.geometry.attributes.position.array;
 
-			// Already render before streaming has finished, so that the background is shown in the meantime.
-			this.renderer.render( this.scene, this.camera );
+			await new Promise( resolve =>
+				streamClone3
+					.pipe( JSONStream.parse( 'vertices.$*' ) )
+					.pipe( Stream.mapSync( function ( data ) {
+
+						for ( let i = 0; i < 3; i ++ ) {
+
+							positions[ data.key * 3 + i ] = data.value[ i ];
+
+						}
+
+					} ) )
+					.on( 'end', resolve ) );
+
+			console.log( "Vertices done" );
+
+			// Parse it all into a BufferGeometry and add to scene
+			self.createGeometry();
+			self.renderer.render( self.scene, self.camera );
 
 			$( "#viewer" ).dblclick( function ( eventData ) {
 
@@ -319,10 +344,11 @@ export default {
 			material.vertexColors = true;
 
 			this.geometry.setIndex( this.indices );
-			this.geometry.setAttribute( 'position', new THREE.Float32BufferAttribute( this.vertices, 3 ) );
+			// this.geometry.setAttribute( 'position', new THREE.Float32BufferAttribute( this.vertices, 3 ) );
 			this.geometry.setAttribute( 'color', new THREE.Float32BufferAttribute( this.colors, 3 ) );
 			this.geometry.computeBoundingSphere();
 
+			// TODO: normalise vertices before loading into buffer?
 			const center = this.geometry.boundingSphere.center;
 			const radius = this.geometry.boundingSphere.radius;
 
@@ -348,7 +374,7 @@ export default {
 
 			this.scene.add( this.mesh );
 
-			delete this.cmvertices;
+			// delete this.cmvertices;
 
 		},
 
@@ -388,7 +414,7 @@ export default {
 
 					for ( i = 0; i < shells.length; i ++ ) {
 
-						await this.parseShell( shells[ i ], vertices );
+						await this.parseShell( shells[ i ], vertices, color, id );
 
 					}
 
@@ -396,7 +422,7 @@ export default {
 
 					var surfaces = cityObj.geometry[ geom_i ].boundaries;
 
-					await this.parseShell( surfaces, vertices );
+					await this.parseShell( surfaces, vertices, color, id );
 
 				} else if ( geomType == "MultiSolid" || geomType == "CompositeSolid" ) {
 
@@ -406,7 +432,7 @@ export default {
 
 						for ( j = 0; j < solids[ i ].length; j ++ ) {
 
-							await this.parseShell( solids[ i ][ j ], vertices );
+							await this.parseShell( solids[ i ][ j ], vertices, color, id );
 
 						}
 
@@ -416,38 +442,13 @@ export default {
 
 			}
 
-			var uniqueVertices = [ ...new Set( vertices ) ];
-			const length = this.vertices.length / 3;
-
-			for ( v of uniqueVertices ) {
-
-				this.vertices.push( this.cmvertices[ v ][ 0 ] );
-				this.vertices.push( this.cmvertices[ v ][ 1 ] );
-				this.vertices.push( this.cmvertices[ v ][ 2 ] );
-
-				this.colors.push( color.r, color.g, color.b );
-
-			}
-
-			for ( var v = 0; v < vertices.length; v += 3 ) {
-
-				var i0 = uniqueVertices.indexOf( vertices[ v ] ) + length;
-				var i1 = uniqueVertices.indexOf( vertices[ v + 1 ] ) + length;
-				var i2 = uniqueVertices.indexOf( vertices[ v + 2 ] ) + length;
-
-				this.indices.push( i0, i1, i2 );
-
-				this.faceIDs.push( id );
-
-			}
-
 			this.idFaces[ id ] = [ firstFaceID, this.faceIDs.length - 1 ];
 
 			return ( "" );
 
 		},
 
-		async parseShell( boundaries, vertices ) {
+		async parseShell( boundaries, vertices, color, id ) {
 
 			var i, j;
 
@@ -471,9 +472,9 @@ export default {
 
 				if ( boundary.length == 3 ) {
 
-					vertices.push( boundary[ 0 ],
-						boundary[ 1 ],
-						boundary[ 2 ] );
+					this.indices.push( boundary[ 0 ], boundary[ 1 ], boundary[ 2 ] );
+					this.colors.push( color.r, color.g, color.b );
+					this.faceIDs.push( id );
 
 				} else if ( boundary.length > 3 ) {
 
